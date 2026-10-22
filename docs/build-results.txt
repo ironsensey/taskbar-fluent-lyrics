@@ -1,6 +1,8 @@
 Source: taskbar-fluent-lyrics.wh.cpp
-SHA-256: 143371636edea5eb316179005dbc32b864087432ba061725b3f0a18774e4ee58
+SHA-256: 7365018bbae2b3d0db1bf9ca9037c8807a4572d2c4150cdb790d2e868e9a4eb1
 
+PASS: official Windhawk architecture metadata parsing
+PASS: single-file mod structure
 PASS: Windows x64 compilation and linking
 PASS: Windows ARM64 compilation and linking
 PASS: 23 deterministic production-algorithm scenarios

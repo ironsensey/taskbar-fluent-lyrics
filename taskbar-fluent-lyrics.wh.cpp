@@ -2,11 +2,11 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.0
+// @version         3.0.1
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
-// @architecture    x86-64 arm64
+// @architecture    x86-64
 // @compilerOptions -lole32 -loleaut32 -lruntimeobject -luuid -luser32 -lwindowsapp -lshell32 -lgdi32 -lshlwapi -lwindowscodecs -ldwmapi -lshcore -lksuser -lwinhttp
 // ==/WindhawkMod==
 

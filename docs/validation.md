@@ -4,6 +4,9 @@ Automated checks execute production functions extracted from the single-file mod
 
 Current automated results:
 
+- Version 3.0.1 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
+- Single-file structure: no project-local includes; only the `.wh.cpp` is needed for installation.
+
 - Production algorithms: 23 deterministic scenarios and 10,000 randomized geometry checks passed.
 - Settings: 157 bound settings and 44 slider declarations passed validation.
 - x64: full Windows DLL compilation and linking passed using LLVM-MinGW 20251104, Windows SDK C++/WinRT 10.0.26100 and Windhawk 1.7.3 import libraries.

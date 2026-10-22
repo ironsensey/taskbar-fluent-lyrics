@@ -1,4 +1,4 @@
-# Taskbar Fluent Media + Lyrics 3.0
+# Taskbar Fluent Media + Lyrics 3.0.1
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
 

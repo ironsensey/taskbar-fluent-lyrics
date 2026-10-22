@@ -10,6 +10,15 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'taskbar-fluent-lyrics.wh.cpp').read_text(encoding='utf-8')
 
+# Windhawk accepts one architecture token per metadata line, not a space-separated list.
+metadata = source.split('// ==WindhawkMod==', 1)[1].split('// ==/WindhawkMod==', 1)[0]
+architectures = re.findall(r'^// @architecture\s+(.+)$', metadata, re.M)
+assert architectures, 'Declare the supported architectures explicitly'
+assert all(value in {'x86', 'x86-64', 'amd64', 'arm64'} for value in architectures), architectures
+# The installed mod must remain a single file, with no project-local includes.
+assert not re.search(r'^\s*#include\s*"', source, re.M), 'Local includes would require extra mod files'
+print('PASS: Windhawk architecture metadata and single-file mod structure')
+
 def between(start, end):
     return source.split(start, 1)[1].split(end, 1)[0]
 
