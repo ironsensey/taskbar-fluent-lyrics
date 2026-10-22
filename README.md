@@ -1,6 +1,10 @@
-# Taskbar Fluent Media + Lyrics 3.0.2
+# Taskbar Fluent Media + Lyrics 3.0.3
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
+
+**Settings-save crash fix in 3.0.3:** the previous callback requested a full DLL unload/reload on every settings save. XAML callbacks can outlive removal of their UI tree, making that policy unsafe. Settings now apply in place: pause admission of new jobs, stop producers, drain workers (including captured-resource destruction), read settings and rebuild the UI on the taskbar thread, then resume. The settings callback explicitly requests **no DLL reload**. The live XAML root is reused for edits on the same taskbar.
+
+If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.3. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
 
 ![Default component positions](docs/layout.svg)
 
@@ -35,8 +39,8 @@ At the left edge, the default component order is **cover → title/artist → pr
 - Timeline snapshots are cached for up to one second and interpolated at the lyric cadence. Playback/seek events invalidate the cache; playback speed is respected. Seek buttons also use the estimated live position rather than an old timeline timestamp.
 - Paused/absent media uses a one-second wait. Idle hiding measures elapsed time rather than counting event/timer wakes. Visibility checks do not force a layout every poll.
 - Battery/Windows energy-saver mode uses a minimum 200-ms lyric interval, removes lyric transitions, stops the optional audio visualizer and pauses text scrolling. Text scrolling and visualizer default to off. Power state is checked every five seconds.
-- Lyrics use a bounded 32-track positive cache, response/cue limits and a maximum of three lookup attempts for an unchanged track. Metadata changes or a module reload start a new attempt budget.
-- Settings saves request a module reload so workers never race a mutation of the settings object. Shutdown waits for workers and dispatches pending UI calls before unloading their code.
+- Lyrics use a bounded 32-track positive cache, response/cue limits and a maximum of three lookup attempts for an unchanged track. Metadata changes or a settings update start a new attempt budget. Lyrics lookups stop issuing requests while settings apply.
+- Settings saves keep the DLL loaded. A serialized pause/stop/drain/UI-reconfigure/resume sequence protects settings from concurrent readers. New media callbacks cannot start jobs while settings apply, and captured COM resources are destroyed before a job is counted as drained. Failed reads restore the previous configuration and resume producers.
 - Media buttons have accessible names, tooltips and session capability checks. An explicit empty button list stays empty.
 
 Online lyrics send title and artist to `lrclib.net` using HTTPS. Disable **Fetch synced lyrics online** to stop those lookups. No credential is required. English lyrics remain unchanged, including punctuation and emoji. Hindi always uses Roman letters (Hinglish). Approximate Hindi/Gurmukhi romanization runs locally; it does not translate lyrics. No lyrics service has complete catalog coverage, and some media apps do not expose usable timelines.
@@ -50,7 +54,8 @@ On Linux x64, prepare the optional, pinned cross-compiler outside the checkout a
 ```sh
 python3 -m pip install -r requirements-dev.txt
 python3 tools/bootstrap.py
-python3 tools/test.py
+python3 tools/test.py --mutation-check
+python3 tools/test.py --sanitize
 python3 tools/build.py --arch x86_64 --arch aarch64
 ```
 
@@ -63,6 +68,9 @@ The DLLs in `build/` are for compiler validation. Install the `.wh.cpp` through 
 | Pure production C++ placement, LRC parsing and romanization | 26 scenarios passed |
 | Randomized placement bounds and collision invariants | 10,000 passed |
 | Windhawk settings defaults, bindings, dropdowns and slider bounds | 157 bindings / 44 sliders checked |
+| Live settings lifecycle, failure recovery and worker drain | 1,000 callback saves / 100 concurrent-worker cycles passed |
+| Old forced-reload policy mutation | Rejected by the regression test |
+| Address / undefined-behavior sanitizers on C++ regression harness | Passed |
 | Full x64 Windows compile and link | Passed |
 | Full ARM64 Windows compile and link | Passed |
 | Explorer rendering, clicks, music-app integration, monitor/DPI changes | Requires Windows verification |

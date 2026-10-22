@@ -2,11 +2,17 @@
 """Run the production pure-C++ algorithms; validate Windhawk settings bindings."""
 from pathlib import Path
 import os
+import argparse
+import shlex
 import re
 import subprocess
 import tempfile
 import yaml
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--sanitize', action='store_true', help='Run with address/undefined-behavior sanitizers')
+parser.add_argument('--mutation-check', action='store_true', help='Verify regression tests reject the former forced-reload callback')
+args = parser.parse_args()
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'taskbar-fluent-lyrics.wh.cpp').read_text(encoding='utf-8')
 
@@ -98,10 +104,44 @@ static void Wh_Log(const wchar_t*, ...) { ++testLogCount; }
 using WindowThreadProc = void(*)(void*);
 """
 program += source[source.index('static bool InvokeWindowThreadProc('):source.index('static bool RunFromWindowThread(')]
+program += r"""
+#include <atomic>
+#include <chrono>
+#include <mutex>
+#include <thread>
+#include <memory>
+#include <optional>
+static std::atomic<bool> g_unloading{false};
+static std::atomic<bool> g_applyingSettings{false};
+"""
+program += between('// BEGIN PORTABLE SETTINGS LIFECYCLE\n', '// END PORTABLE SETTINGS LIFECYCLE')
+program += source[source.index('static std::atomic<int> g_activeWorkerThreads'):source.index('static void WaitForThreadToExit(')]
+program += r"""
+using BOOL = int;
+constexpr BOOL TRUE = 1, FALSE = 0;
+static bool testLiveSettingsSuccess = true;
+static bool ApplySettingsLive() { return testLiveSettingsSuccess; }
+"""
+program += source[source.index('BOOL Wh_ModSettingsChanged('):]
+program += (ROOT / 'tests/settings_lifecycle.cpp').read_text()
 program += (ROOT / 'tests/portable_tests.cpp').read_text()
 with tempfile.TemporaryDirectory(prefix='taskbar-player-tests-') as temp:
     cpp = Path(temp, 'tests.cpp')
     binary = Path(temp, 'tests')
     cpp.write_text(program, encoding='utf-8')
-    subprocess.run([os.environ.get('CXX', 'g++'), '-std=c++20', '-O2', '-Wall', '-Wextra', str(cpp), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True)
+    compiler = shlex.split(os.environ.get('CXX', 'g++'))
+    flags = ['-std=c++20', '-O2', '-pthread', '-Wall', '-Wextra']
+    if args.sanitize:
+        flags += ['-O1', '-g', '-fsanitize=address,undefined', '-fno-omit-frame-pointer']
+    subprocess.run([*compiler, *flags, str(cpp), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], cwd=temp, check=True)
+    if args.mutation_check:
+        import resource
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        mutant = program.replace('if (reload) *reload = FALSE;', 'if (reload) *reload = TRUE;', 1)
+        assert mutant != program
+        cpp.write_text(mutant, encoding='utf-8')
+        subprocess.run([*compiler, *flags, str(cpp), '-o', str(binary)], check=True)
+        rejected = subprocess.run([str(binary)], cwd=temp, capture_output=True, text=True)
+        assert rejected.returncode != 0 and 'reload == FALSE' in rejected.stderr, rejected.stderr
+        print('PASS: regression test rejects the former forced-DLL-reload behavior')

@@ -80,5 +80,6 @@ int main() {
     assert(!InvokeWindowThreadProc([](void*) { throw std::runtime_error("callback failure"); }, nullptr));
     assert(!InvokeWindowThreadProc([](void*) { throw winrt::hresult_error{}; }, nullptr));
     assert(testLogCount == 2);
+    TestSettingsLifecycle();
     std::cout << "PASS: 26 scenarios and 10,000 randomized placement checks\n";
 }

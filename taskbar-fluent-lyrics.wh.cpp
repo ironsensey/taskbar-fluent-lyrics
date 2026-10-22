@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.2
+// @version         3.0.3
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -1432,6 +1432,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
 #include <functional>
 #include <memory>
 #include <utility>
+#include <type_traits>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -1447,6 +1448,26 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
 #include <cwctype>
 #include <cstdint>
 #include <limits>
+// BEGIN PORTABLE SETTINGS LIFECYCLE
+namespace LiveSettings {
+template <class Actions>
+static bool Apply(Actions& actions) noexcept {
+    try { actions.Pause(); }
+    catch (...) { actions.ReportFailure(); return false; }
+    bool applied = false;
+    try {
+        actions.StopProducers();
+        actions.DrainWorkers();
+        applied = actions.ReconfigureOnUi();
+    } catch (...) { actions.ReportFailure(); }
+    // Resume even if a settings read/UI dispatch fails; never request DLL unload.
+    try { actions.Resume(); }
+    catch (...) { actions.ReportFailure(); return false; }
+    return applied;
+}
+}
+// END PORTABLE SETTINGS LIFECYCLE
+
 // BEGIN PORTABLE PLAYER GEOMETRY
 namespace PlayerGeometry {
 struct Interval { double left, right; };
@@ -2235,15 +2256,21 @@ static void DispatchLyricsUpdate() {
 
 
 static std::atomic<int> g_activeWorkerThreads{0};
+static std::mutex g_workerAdmissionMutex;
+static std::mutex g_settingsChangeMutex;
 template <typename F>
 static void SpawnTrackedWorker(F&& fn) {
-    if (g_unloading) return;
+    std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
+    if (g_unloading || g_applyingSettings) return;
     g_activeWorkerThreads.fetch_add(1, std::memory_order_relaxed);
-    try { std::thread([f = std::forward<F>(fn)]() mutable {
+    using Work = std::decay_t<F>;
+    try { std::thread([work = std::optional<Work>(std::in_place, std::forward<F>(fn))]() mutable {
         struct Decrementer {
-            ~Decrementer() { g_activeWorkerThreads.fetch_sub(1, std::memory_order_relaxed); }
+            ~Decrementer() { g_activeWorkerThreads.fetch_sub(1, std::memory_order_release); }
         } dec;
-        try { f(); } catch (...) { Wh_Log(L"Media worker failed"); }
+        try { (*work)(); } catch (...) { Wh_Log(L"Media worker failed"); }
+        // Destroy captured COM/UI resources before reporting that this job drained.
+        work.reset();
     }).detach();
     } catch (...) { g_activeWorkerThreads.fetch_sub(1, std::memory_order_relaxed); Wh_Log(L"Cannot create media worker"); }
 }
@@ -2269,7 +2296,7 @@ static void WaitForTrackedWorkers() {
     DWORD tid = GetCurrentThreadId();
     bool isUiThread = hTaskbar && (GetWindowThreadProcessId(hTaskbar, nullptr) == tid);
     if (isUiThread) {
-        while (g_activeWorkerThreads.load(std::memory_order_relaxed) > 0) {
+        while (g_activeWorkerThreads.load(std::memory_order_acquire) > 0) {
             MSG msg;
             while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE | PM_QS_SENDMESSAGE)) {
                 TranslateMessage(&msg);
@@ -2278,7 +2305,7 @@ static void WaitForTrackedWorkers() {
             Sleep(10);
         }
     } else {
-        while (g_activeWorkerThreads.load(std::memory_order_relaxed) > 0) {
+        while (g_activeWorkerThreads.load(std::memory_order_acquire) > 0) {
             Sleep(10);
         }
     }
@@ -2296,6 +2323,8 @@ static const IID XIID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 static const IID XIID_IAudioSessionManager2 = __uuidof(IAudioSessionManager2);
 [[clang::no_destroy]] static Grid             g_playerGrid      = nullptr;
 [[clang::no_destroy]] static FrameworkElement g_injectionParent = nullptr;
+[[clang::no_destroy]] static XamlRoot g_cachedTaskbarXamlRoot{nullptr};
+static HWND g_cachedTaskbarRootWindow = nullptr;
 static int              g_playerColumn    = -1;
 [[clang::no_destroy]] static std::function<void()> g_playerButtonStateUpdater;
 [[clang::no_destroy]] static ToolTip          g_playerToolTip   = nullptr;
@@ -2995,9 +3024,9 @@ static std::vector<std::wstring> LyricsTitleVariants(const std::wstring& origina
 static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& status) {
     status = 0;
     json.clear();
-    if (g_unloading.load()) return false;
+    if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/2.1.2 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.3 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -3014,7 +3043,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     if (!WinHttpQueryHeaders(request.value, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                              WINHTTP_HEADER_NAME_BY_INDEX, &status, &statusSize, WINHTTP_NO_HEADER_INDEX)) return false;
     if (status != 200) return true; // 404 is a catalog miss, not a transport failure.
-    while (!g_unloading.load() && json.size() < 512 * 1024) {
+    while (!(g_unloading.load() || g_applyingSettings.load()) && json.size() < 512 * 1024) {
         char buf[4096];
         DWORD bytes = 0;
         if (!WinHttpReadData(request.value, buf, sizeof(buf), &bytes)) return false;
@@ -3022,7 +3051,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
         if (json.size() + bytes > 512 * 1024) return false;
         json.append(buf, bytes);
     }
-    return !g_unloading.load();
+    return !(g_unloading.load() || g_applyingSettings.load());
 }
 static std::vector<LyricCue> LyricsCuesFromJson(winrt::Windows::Data::Json::JsonObject const& obj) {
     if (!obj || !obj.HasKey(L"syncedLyrics")) return {};
@@ -3033,7 +3062,7 @@ static std::vector<LyricCue> LyricsCuesFromJson(winrt::Windows::Data::Json::Json
 static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
                                                        const std::wstring& artist) {
     LyricLookupResult result;
-    if (title.empty() || g_unloading.load()) return result;
+    if (title.empty() || (g_unloading.load() || g_applyingSettings.load())) return result;
     auto titles = LyricsTitleVariants(title, artist);
     if (titles.empty() || artist.size() > 240) return result;
 
@@ -3048,7 +3077,7 @@ static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
             int highestScore = -1;
             const uint32_t length = std::min<uint32_t>(records.Size(), 20);
             for (uint32_t i = 0; i < length; ++i) {
-                if (g_unloading.load()) break;
+                if ((g_unloading.load() || g_applyingSettings.load())) break;
                 auto value = records.GetAt(i);
                 if (value.ValueType() != winrt::Windows::Data::Json::JsonValueType::Object) continue;
                 auto obj = value.GetObject();
@@ -3082,7 +3111,7 @@ static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
     std::string json;
     DWORD status = 0;
     for (size_t variant = 0; variant < titles.size() && variant < 2; ++variant) {
-        if (g_unloading.load()) break;
+        if ((g_unloading.load() || g_applyingSettings.load())) break;
         const auto& cleanTitle = titles[variant];
         // Query Roman artist for Roman title; retain original when both are Indic.
         const std::wstring lookupArtist = LyricsHasIndicScript(cleanTitle)
@@ -3105,7 +3134,7 @@ static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
         }
         // Search first with exact title+artist (precision), then with title only
         // for records with alternate artist credits. All matches are validated.
-        for (int pass = 0; pass < 3 && !g_unloading.load(); ++pass) {
+        for (int pass = 0; pass < 3 && !(g_unloading.load() || g_applyingSettings.load()); ++pass) {
             if (pass == 1 && artist.empty()) continue;
             std::wstring query;
             if (pass == 0) {
@@ -3143,7 +3172,7 @@ static void LyricsLookupWorker() {
         uint64_t serial = 0;
         {
             std::lock_guard<std::mutex> lk(g_lyricsMutex);
-            if (!g_lyricsPending || g_unloading.load()) {
+            if (!g_lyricsPending || (g_unloading.load() || g_applyingSettings.load())) {
                 g_lyricsWorkerActive = false;
                 return;
             }
@@ -3157,7 +3186,7 @@ static void LyricsLookupWorker() {
         bool resultChanged = false;
         {
             std::lock_guard<std::mutex> lk(g_lyricsMutex);
-            if (g_unloading.load()) { g_lyricsWorkerActive = false; return; }
+            if ((g_unloading.load() || g_applyingSettings.load())) { g_lyricsWorkerActive = false; return; }
             if (g_lyricsGeneration == serial && g_lyricsKey == key) {
                 if (!found.cues.empty()) {
                     g_lyricsCues = found.cues;
@@ -5189,7 +5218,7 @@ static void FetchMediaPropertiesOnce(uint64_t requestId) {
 }
 static std::atomic<bool> g_mediaPropertiesBusy{false};
 static void FetchMediaPropertiesAsync() {
-    if (g_unloading) return;
+    if (g_unloading || g_applyingSettings) return;
     ++g_lyricsMediaPropsRequestId;
     if (g_mediaPropertiesBusy.exchange(true)) return;
     SpawnTrackedWorker([] {
@@ -5399,7 +5428,7 @@ static void AttachToSession(GlobalSystemMediaTransportControlsSession session) {
         g_timelineDirty = true;
         try {
             g_evMediaProps = g_currentSession.MediaPropertiesChanged([](auto const&, auto const&) {
-                if (!g_unloading) FetchMediaPropertiesAsync();
+                SpawnTrackedWorker([] { FetchMediaPropertiesAsync(); });
             });
             g_evPlayback = g_currentSession.PlaybackInfoChanged([](auto const&, auto const&) {
                 g_timelineDirty = true;
@@ -5407,7 +5436,7 @@ static void AttachToSession(GlobalSystemMediaTransportControlsSession session) {
             });
             g_evTimeline = g_currentSession.TimelinePropertiesChanged([](auto const&, auto const&) {
                 g_timelineDirty = true;
-                if (!g_unloading && g_timerUpdateEvent) SetEvent(g_timerUpdateEvent);
+                if (!g_unloading && !g_applyingSettings && g_timerUpdateEvent) SetEvent(g_timerUpdateEvent);
             });
         } catch (...) {
             Wh_Log(L"AttachToSession: Failed to attach event handlers; rolling back partial subscriptions");
@@ -5424,7 +5453,7 @@ fetch:
     FetchPlaybackInfoAsync();
 }
 static void OnSessionsChanged() {
-    if (g_unloading) return;
+    if (g_unloading || g_applyingSettings) return;
     bool forceRefresh = g_forceSessionRefresh.exchange(false);
     try {
         GlobalSystemMediaTransportControlsSessionManager mgr{nullptr};
@@ -5460,10 +5489,10 @@ static DWORD WINAPI MediaThreadProc(void*) {
             g_sessionMgr = op.GetResults();
         }
         g_evSessionsChanged = g_sessionMgr.SessionsChanged([](auto const&, auto const&) {
-            OnSessionsChanged();
+            SpawnTrackedWorker([] { OnSessionsChanged(); });
         });
         g_evCurrentChanged  = g_sessionMgr.CurrentSessionChanged([](auto const&, auto const&) {
-            OnSessionsChanged();
+            SpawnTrackedWorker([] { OnSessionsChanged(); });
         });
         OnSessionsChanged();
         if (WaitForSingleObject(g_mediaStopEvent, 2000) == WAIT_TIMEOUT) {
@@ -6645,6 +6674,9 @@ static bool IsReadableMemoryRange(const void* address, size_t size) {
            size <= regionEnd - start;
 }
 static XamlRoot GetTaskbarXamlRoot(HWND hTaskbarWnd) {
+    // Settings edits reuse the live XAML root rather than re-entering Explorer's
+    // private TaskbarHost/shared_ptr ABI on every UI rebuild.
+    if (hTaskbarWnd == g_cachedTaskbarRootWindow && g_cachedTaskbarXamlRoot) return g_cachedTaskbarXamlRoot;
     wchar_t clsBuf[64] = {};
     GetClassNameW(hTaskbarWnd, clsBuf, ARRAYSIZE(clsBuf));
     bool isSecondary = _wcsicmp(clsBuf, L"Shell_SecondaryTrayWnd") == 0;
@@ -6774,7 +6806,12 @@ static XamlRoot GetTaskbarXamlRoot(HWND hTaskbarWnd) {
     auto result = taskbarElement ? taskbarElement.XamlRoot() : nullptr;
     if (taskbarHostSharedPtr[1] && Std_Ref_Decref_Original)
         Std_Ref_Decref_Original(taskbarHostSharedPtr[1]);
-    return SUCCEEDED(hr) ? result : nullptr;
+    if (SUCCEEDED(hr) && result) {
+        g_cachedTaskbarXamlRoot = result;
+        g_cachedTaskbarRootWindow = hTaskbarWnd;
+        return result;
+    }
+    return nullptr;
 }
 static const wchar_t* GetGlyphWithStyle(int cmd, const std::wstring& style, bool isPlaying = false) {
     bool isFluent = (style == L"fluent_outline" || style == L"fluent_filled");
@@ -11664,7 +11701,7 @@ using TrayUI_StartTaskbar_t = void(WINAPI*)(void*);
 static TrayUI_StartTaskbar_t TrayUI_StartTaskbar_Original = nullptr;
 static void WINAPI TrayUI_StartTaskbar_Hook(void* pThis) {
     TrayUI_StartTaskbar_Original(pThis);
-    if (g_unloading) {
+    if (g_unloading || g_applyingSettings) {
         return;
     }
     HWND hWnd = FindCurrentProcessTaskbarWnd();
@@ -11672,6 +11709,8 @@ static void WINAPI TrayUI_StartTaskbar_Hook(void* pThis) {
         Wh_Log(L"TrayUI_StartTaskbar_Hook: Taskbar window not found");
         return;
     }
+    g_cachedTaskbarXamlRoot = nullptr;
+    g_cachedTaskbarRootWindow = nullptr;
     g_playerGrid      = nullptr;
     g_lyricsOverlayHost = nullptr;
     g_lyricsViewport = nullptr;
@@ -11784,13 +11823,18 @@ void Wh_ModAfterInit() {
     }
 }
 void Wh_ModUninit() {
-    g_unloading = true;
+    {
+        std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
+        g_unloading = true;
+    }
     StopTimerThread();
     StopMediaThread();
     WaitForTrackedWorkers();
     if (g_taskbarWnd)
         RunFromWindowThread(g_taskbarWnd, [](void*) {
             RemovePlayerGrid();
+            g_cachedTaskbarXamlRoot = nullptr;
+            g_cachedTaskbarRootWindow = nullptr;
             g_mediaHoverBrush   = nullptr;
             g_mediaPressedBrush = nullptr;
             g_playerHoverBrush  = nullptr;
@@ -11823,7 +11867,118 @@ void Wh_ModUninit() {
     }
     CleanupAudioDeviceEnumerator();
 }
+static bool ReconfigureSettingsOnUi() {
+    HWND oldWindow = g_taskbarWnd;
+    if (!oldWindow || !IsWindow(oldWindow)) oldWindow = FindCurrentProcessTaskbarWnd();
+    if (!oldWindow) {
+        Wh_Log(L"Settings update deferred: no live taskbar UI window");
+        return false;
+    }
+    struct Context { bool loaded = false; } context;
+    const bool removed = RunFromWindowThread(oldWindow, [](void* param) {
+        auto& state = *static_cast<Context*>(param);
+        RemovePlayerGrid();
+        // Release old-thread-affine timers/styles before moving to another monitor.
+        if (g_scrollDispatcherTimer) {
+            g_scrollDispatcherTimer.Stop();
+            if (g_scrollDispatcherTimerHasToken) g_scrollDispatcherTimer.Tick(g_scrollDispatcherTimerToken);
+            g_scrollDispatcherTimer = nullptr;
+        }
+        g_scrollDispatcherTimerHasToken = false;
+        g_scrollDispatcherTimerToken = {};
+        if (g_vizDispatcherTimer) {
+            g_vizDispatcherTimer.Stop();
+            if (g_vizDispatcherTimerHasToken) g_vizDispatcherTimer.Tick(g_vizDispatcherTimerToken);
+            g_vizDispatcherTimer = nullptr;
+        }
+        g_vizDispatcherTimerHasToken = false;
+        g_vizDispatcherTimerToken = {};
+        g_vizCurrentlyVisible = false;
+        if (g_vizBars) g_vizBars->clear();
+        if (g_vizBrushes) g_vizBrushes->clear();
+        g_mediaHoverBrush = nullptr;
+        g_mediaPressedBrush = nullptr;
+        g_playerHoverBrush = nullptr;
+        g_playerPressedBrush = nullptr;
+        g_playerBorderBrush = nullptr;
+        g_playerBorderPressedBrush = nullptr;
+        g_fluentMediaButtonStyle = nullptr;
+        ModSettings previous = g_settings;
+        std::vector<MediaButtonConfig> previousButtons;
+        { std::lock_guard<std::mutex> lock(g_mediaButtonsMutex); previousButtons = g_mediaButtons; }
+        try {
+            LoadSettings();
+            state.loaded = true;
+        } catch (...) {
+            g_settings = std::move(previous);
+            { std::lock_guard<std::mutex> lock(g_mediaButtonsMutex); g_mediaButtons = std::move(previousButtons); }
+            Wh_Log(L"Settings read failed; restoring the previous configuration");
+        }
+        if (g_settings.monitor != previous.monitor) {
+            g_cachedTaskbarXamlRoot = nullptr;
+            g_cachedTaskbarRootWindow = nullptr;
+        }
+        // No producers or tracked jobs are running at this point.
+        ++g_lyricsMediaPropsRequestId;
+        g_mediaPropertiesBusy = false;
+        {
+            std::lock_guard<std::mutex> lock(g_lyricsMutex);
+            g_lyricsKey.clear();
+            ++g_lyricsGeneration;
+            g_lyricsCues.clear();
+            g_lyricsCurrentIndex = -1;
+            g_lyricsLastPositionMs = -1;
+            g_lyricsWorkerActive = false;
+            g_lyricsPending = false;
+            g_lyricsNeedRetry = false;
+            g_lyricsFailureCount = 0;
+        }
+        g_timelineDirty = true;
+        g_vizBaseColorDirty = true;
+        g_vizPaletteColorsDirty = true;
+        g_hiddenByIdle = false;
+        g_needsLyricsUiUpdate = false;
+    }, &context);
+    if (!removed) return false;
+    HWND newWindow = FindCurrentProcessTaskbarWnd();
+    if (!newWindow) newWindow = IsWindow(oldWindow) ? oldWindow : nullptr;
+    if (!newWindow) return false;
+    g_taskbarWnd = newWindow;
+    const bool rebuilt = RunFromWindowThread(newWindow, [](void*) {
+        if (!g_vizBars) g_vizBars.emplace();
+        if (!g_vizBrushes) g_vizBrushes.emplace();
+        ApplySettingsWithRetry(nullptr);
+    }, nullptr);
+    return context.loaded && rebuilt;
+}
+static bool ApplySettingsLive() {
+    std::lock_guard<std::mutex> change(g_settingsChangeMutex);
+    if (g_unloading) return false;
+    struct Actions {
+        void Pause() {
+            std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
+            g_applyingSettings = true;
+        }
+        void StopProducers() { StopTimerThread(); StopMediaThread(); }
+        void DrainWorkers() { WaitForTrackedWorkers(); }
+        bool ReconfigureOnUi() { return ReconfigureSettingsOnUi(); }
+        void Resume() {
+            {
+                std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
+                g_applyingSettings = false;
+            }
+            if (!g_unloading) {
+                StartMediaThread();
+                StartTimerThread();
+                DispatchMediaUpdate();
+            }
+        }
+        void ReportFailure() noexcept { Wh_Log(L"In-place settings update failed; the module remains loaded"); }
+    } actions;
+    return LiveSettings::Apply(actions);
+}
 BOOL Wh_ModSettingsChanged(BOOL* reload) {
-    *reload = TRUE;
-    return TRUE;
+    // XAML objects/delegates may survive a tree removal. Keep their code mapped.
+    if (reload) *reload = FALSE;
+    return ApplySettingsLive() ? TRUE : FALSE;
 }
