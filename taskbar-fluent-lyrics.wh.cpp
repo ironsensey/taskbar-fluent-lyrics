@@ -2300,6 +2300,7 @@ static int              g_playerColumn    = -1;
 [[clang::no_destroy]] static std::function<void()> g_playerButtonStateUpdater;
 [[clang::no_destroy]] static ToolTip          g_playerToolTip   = nullptr;
 static std::atomic<bool> g_needsUiUpdate{false};
+static std::atomic<bool> g_resetScrollPending{false};
 static void ShowSuccessNotification() {
     if (g_settings.showSuccessNotification) Wh_Log(L"Taskbar media player initialized successfully");
 }
@@ -2345,32 +2346,51 @@ static Std_Ref_Decref_t            Std_Ref_Decref_Original            = nullptr;
 static void* CTaskBand_ITaskListWndSite_vftable = nullptr;
 static void* CSecondaryTaskBand_ITaskListWndSite_vftable = nullptr;
 using WindowThreadProc = void(*)(void*);
-static bool RunFromWindowThread(HWND hWnd, WindowThreadProc proc, void* param) {
-    static const UINT kMsg = RegisterWindowMessage(L"Windhawk_RunFromWindowThread_" WH_MOD_ID);
-    struct Payload { WindowThreadProc proc; void* param; };
-    DWORD tid = GetWindowThreadProcessId(hWnd, nullptr);
-    if (!tid) return false;
-    if (tid == GetCurrentThreadId()) {
+static int g_windowDispatchIdentity;
+static UINT WindowDispatchMessage() {
+    static const UINT message = [] {
+        std::wstring name = L"Windhawk_MediaUiDispatch_" WH_MOD_ID L"_";
+        name += std::to_wstring(reinterpret_cast<uintptr_t>(&g_windowDispatchIdentity));
+        return RegisterWindowMessageW(name.c_str());
+    }();
+    return message;
+}
+static bool InvokeWindowThreadProc(WindowThreadProc proc, void* param) noexcept {
+    try {
         proc(param);
         return true;
+    } catch (winrt::hresult_error const& error) {
+        Wh_Log(L"Taskbar UI callback failed: HRESULT 0x%08X: %s", static_cast<unsigned>(error.code()), error.message().c_str());
+    } catch (...) {
+        Wh_Log(L"Taskbar UI callback failed; exception contained before returning to Explorer");
     }
+    return false;
+}
+static bool RunFromWindowThread(HWND hWnd, WindowThreadProc proc, void* param) {
+    if (!hWnd || !proc) return false;
+    const UINT message = WindowDispatchMessage();
+    if (!message) return false;
+    struct Payload { WindowThreadProc proc; void* param; bool succeeded; };
+    const DWORD tid = GetWindowThreadProcessId(hWnd, nullptr);
+    if (!tid) return false;
+    if (tid == GetCurrentThreadId()) return InvokeWindowThreadProc(proc, param);
     HHOOK hook = SetWindowsHookExW(WH_CALLWNDPROC,
         [](int code, WPARAM w, LPARAM l) -> LRESULT {
             if (code == HC_ACTION) {
-                auto* cwp = reinterpret_cast<const CWPSTRUCT*>(l);
-                static const UINT kM = RegisterWindowMessage(L"Windhawk_RunFromWindowThread_" WH_MOD_ID);
-                if (cwp->message == kM) {
-                    auto* p = reinterpret_cast<Payload*>(cwp->lParam);
-                    p->proc(p->param);
+                const auto* call = reinterpret_cast<const CWPSTRUCT*>(l);
+                if (call->message == WindowDispatchMessage() &&
+                    call->wParam == reinterpret_cast<WPARAM>(&g_windowDispatchIdentity)) {
+                    auto* payload = reinterpret_cast<Payload*>(call->lParam);
+                    payload->succeeded = InvokeWindowThreadProc(payload->proc, payload->param);
                 }
             }
             return CallNextHookEx(nullptr, code, w, l);
         }, nullptr, tid);
-    if (!hook) return false;
-    Payload pay{proc, param};
-    SendMessageW(hWnd, kMsg, 0, reinterpret_cast<LPARAM>(&pay));
+    if (!hook) { Wh_Log(L"Cannot install taskbar UI dispatch hook: %lu", GetLastError()); return false; }
+    Payload payload{proc, param, false};
+    SendMessageW(hWnd, message, reinterpret_cast<WPARAM>(&g_windowDispatchIdentity), reinterpret_cast<LPARAM>(&payload));
     UnhookWindowsHookEx(hook);
-    return true;
+    return payload.succeeded;
 }
 struct MediaState {
     std::wstring      title;
@@ -3408,7 +3428,7 @@ static std::atomic<RepeatMode> g_repeatMode{RepeatMode::Off};
 static std::wstring g_cachedAlbumTitle;
 static std::wstring g_cachedAlbumArtist;
 static std::vector<BYTE> g_cachedThumbnailBytes;
-static int g_cachedAppIconSize = -1;
+static std::atomic<int> g_cachedAppIconSize{-1};
 static std::wstring g_scrollCachedTitle;
 static std::wstring g_scrollCachedArtist;
 struct BlurBgCache {
@@ -5220,24 +5240,33 @@ static void FetchPlaybackInfoAsync() {
     });
 }
 static void DetachCurrentSession() {
-    std::lock_guard<std::mutex> lk(g_sessionMtx);
-    if (!g_currentSession) return;
-    try {
-        if (g_evMediaProps.value) { g_currentSession.MediaPropertiesChanged(g_evMediaProps); g_evMediaProps = {}; }
-        if (g_evPlayback.value)   { g_currentSession.PlaybackInfoChanged(g_evPlayback); g_evPlayback = {}; }
-        if (g_evTimeline.value)   { g_currentSession.TimelinePropertiesChanged(g_evTimeline); g_evTimeline = {}; }
-    } catch (...) {}
-    g_currentSession = nullptr;
+    GlobalSystemMediaTransportControlsSession session{nullptr};
+    winrt::event_token properties{}, playback{}, timeline{};
+    {
+        std::lock_guard<std::mutex> lock(g_sessionMtx);
+        session = g_currentSession;
+        g_currentSession = nullptr;
+        properties = std::exchange(g_evMediaProps, {});
+        playback = std::exchange(g_evPlayback, {});
+        timeline = std::exchange(g_evTimeline, {});
+    }
+    if (session) {
+        if (properties.value) try { session.MediaPropertiesChanged(properties); } catch (...) { Wh_Log(L"Cannot remove media-properties handler"); }
+        if (playback.value) try { session.PlaybackInfoChanged(playback); } catch (...) { Wh_Log(L"Cannot remove playback handler"); }
+        if (timeline.value) try { session.TimelinePropertiesChanged(timeline); } catch (...) { Wh_Log(L"Cannot remove timeline handler"); }
+    }
     g_timelineDirty = true;
     g_repeatMode = RepeatMode::Off;
     g_shuffleEnabled = false;
     {
-        std::lock_guard<std::mutex> lkm(g_mediaMtx);
-        g_media.canSkipPrevious = true;
-        g_media.canSkipNext     = true;
-        g_media.canShuffle      = true;
-        g_media.canRepeat       = true;
-        g_media.canSeek         = true;
+        std::lock_guard<std::mutex> lock(g_mediaMtx);
+        g_media.isPlaying = false;
+        g_media.canPlayPause = false;
+        g_media.canSkipPrevious = false;
+        g_media.canSkipNext = false;
+        g_media.canShuffle = false;
+        g_media.canRepeat = false;
+        g_media.canSeek = false;
     }
 }
 static GlobalSystemMediaTransportControlsSession PickBestSession() {
@@ -5363,8 +5392,7 @@ static void AttachToSession(GlobalSystemMediaTransportControlsSession session) {
         }
     }
     g_cachedAppIconSize = -1;
-    ResetScrollState(g_titleScroll);
-    ResetScrollState(g_artistScroll);
+    g_resetScrollPending = true;
     {
         std::lock_guard<std::mutex> lk(g_sessionMtx);
         g_currentSession = session;
@@ -5382,7 +5410,11 @@ static void AttachToSession(GlobalSystemMediaTransportControlsSession session) {
                 if (!g_unloading && g_timerUpdateEvent) SetEvent(g_timerUpdateEvent);
             });
         } catch (...) {
-            Wh_Log(L"AttachToSession: Failed to attach event handlers");
+            Wh_Log(L"AttachToSession: Failed to attach event handlers; rolling back partial subscriptions");
+            if (g_evMediaProps.value) try { session.MediaPropertiesChanged(g_evMediaProps); } catch (...) {}
+            if (g_evPlayback.value) try { session.PlaybackInfoChanged(g_evPlayback); } catch (...) {}
+            if (g_evTimeline.value) try { session.TimelinePropertiesChanged(g_evTimeline); } catch (...) {}
+            g_evMediaProps = g_evPlayback = g_evTimeline = {};
             g_currentSession = nullptr;
             return;
         }
@@ -10730,6 +10762,12 @@ static void RemovePlayerGrid() {
 }
 static void RefreshPlayerContents() {
     if (!g_playerGrid || g_unloading || g_applyingSettings) return;
+    if (g_resetScrollPending.exchange(false)) {
+        ResetScrollState(g_titleScroll);
+        ResetScrollState(g_artistScroll);
+        g_scrollCachedTitle.clear();
+        g_scrollCachedArtist.clear();
+    }
     RefreshLyricsOnlyUi();
     if (g_settings.lyricsOnly) return;
     std::wstring      title, artist;
@@ -11709,6 +11747,8 @@ BOOL Wh_ModInit() {
     g_applyingSettings = false;
     g_taskbarWnd = nullptr;
     g_needsUiUpdate = false;
+    if (!g_vizBars) g_vizBars.emplace();
+    if (!g_vizBrushes) g_vizBrushes.emplace();
     LoadSettings();
     SYSTEM_POWER_STATUS power{};
     if (GetSystemPowerStatus(&power)) g_onBattery = power.ACLineStatus == 0 || power.SystemStatusFlag != 0;

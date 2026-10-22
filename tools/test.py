@@ -83,6 +83,21 @@ geometry = between('// BEGIN PORTABLE PLAYER GEOMETRY\n', '// END PORTABLE PLAYE
 lyrics = source[source.index('static std::vector<LyricCue> ParseLrcLines('):source.index('static std::wstring NormalizeLyricsMatch(')]
 # The chunk also includes normalization helpers, all independent of Windows APIs.
 program = includes + geometry + '\nstruct LyricCue { int64_t timeMs; std::wstring text; };\n' + lyrics
+# Exercise the actual dispatch guard without requiring Explorer or Windows SDK runtime.
+# The stand-in supplies only the HRESULT/message interface consumed by this pure C++ guard.
+program += r"""
+#include <stdexcept>
+namespace winrt {
+struct hresult_error {
+    int code() const noexcept { return -1; }
+    std::wstring message() const { return L"Test HRESULT"; }
+};
+}
+static int testLogCount = 0;
+static void Wh_Log(const wchar_t*, ...) { ++testLogCount; }
+using WindowThreadProc = void(*)(void*);
+"""
+program += source[source.index('static bool InvokeWindowThreadProc('):source.index('static bool RunFromWindowThread(')]
 program += (ROOT / 'tests/portable_tests.cpp').read_text()
 with tempfile.TemporaryDirectory(prefix='taskbar-player-tests-') as temp:
     cpp = Path(temp, 'tests.cpp')

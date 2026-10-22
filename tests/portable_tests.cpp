@@ -74,5 +74,11 @@ int main() {
     assert(LyricsRomanizeIndic(L"I LOVE तुम, ਪਿਆਰ! Café") == L"I LOVE tum, pyaar! Café");
     assert(LyricsRomanizeIndic(L"👨‍👩‍👧‍👦 दिल ❤️") == L"👨‍👩‍👧‍👦 dil ❤️");
     assert(LyricsRomanizeIndic(L"  दिल\t\tEnglish\nਪਿਆਰ!  ") == L"  dil\t\tEnglish\npyaar!  ");
-    std::cout << "PASS: 23 scenarios and 10,000 randomized placement checks\n";
+    int callbackCount = 0;
+    assert(InvokeWindowThreadProc([](void* param) { ++*static_cast<int*>(param); }, &callbackCount));
+    assert(callbackCount == 1);
+    assert(!InvokeWindowThreadProc([](void*) { throw std::runtime_error("callback failure"); }, nullptr));
+    assert(!InvokeWindowThreadProc([](void*) { throw winrt::hresult_error{}; }, nullptr));
+    assert(testLogCount == 2);
+    std::cout << "PASS: 26 scenarios and 10,000 randomized placement checks\n";
 }

@@ -25,6 +25,7 @@ At the left edge, the default component order is **cover → title/artist → pr
 
 ## Changes affecting power and reliability
 
+- Explorer UI dispatch catches and logs C++/WinRT exceptions, uses a module-specific message identity, and reports callback failure. Partial media-event subscriptions are rolled back, each removal is attempted independently, and session changes defer scroll-state resets to the UI thread. TranslucentTB compatibility still requires a Windows runtime test; the reported Explorer error has not been reproduced here.
 - Startup retries are canceled before removing the UI or unloading the module; initialization exceptions are logged with HRESULT codes. The optional success notification now writes a log entry instead of opening a modal Windows dialog. These fixes do not identify an unspecified Windows error popup.
 - The full interface is compiled and the component visibility switches are honored. Lyrics remain optional rather than disabling the player.
 - Lyric cue updates refresh only the lyric visual, avoiding full-player tree walks, cover copies and artwork decoding on every line.
@@ -59,7 +60,7 @@ The DLLs in `build/` are for compiler validation. Install the `.wh.cpp` through 
 
 | Check | Result |
 | --- | --- |
-| Pure production C++ placement, LRC parsing and romanization | 23 scenarios passed |
+| Pure production C++ placement, LRC parsing and romanization | 26 scenarios passed |
 | Randomized placement bounds and collision invariants | 10,000 passed |
 | Windhawk settings defaults, bindings, dropdowns and slider bounds | 157 bindings / 44 sliders checked |
 | Full x64 Windows compile and link | Passed |
