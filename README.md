@@ -1,12 +1,14 @@
-# Taskbar Fluent Media + Lyrics 3.0.4
+# Taskbar Fluent Media + Lyrics 3.0.5
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
+
+**Artwork playback button in 3.0.5:** a centered play/pause button is enabled on the cover by default, using no extra taskbar width. It shows Pause while playing and Play while paused, supports keyboard/touch activation, and disables when the session cannot toggle playback. Toggle **Main Settings → Album Art → Play/pause button on cover** to restore custom artwork clicks and the legacy paused indicator. Overlay icon size/background opacity use the existing artwork display settings. The separate control row remains configurable.
 
 **Compact layout in 3.0.4:** enabled by default, including upgrades. The usual cover, title/artist, three buttons and lyrics occupy at most about **316 DIPs**, compared with roughly 500 before. Track names truncate with an ellipsis; lyrics keep the existing wrapping option. No controls are removed. Smaller custom sizes still work. Disable **Main Settings → Media player → Compact horizontal layout** to restore larger custom sizes and whole-player width limits. Additional buttons or the optional visualizer need extra space.
 
 **Settings-save crash fix in 3.0.3:** the previous callback requested a full DLL unload/reload on every settings save. XAML callbacks can outlive removal of their UI tree, making that policy unsafe. Settings now apply in place: pause admission of new jobs, stop producers, drain workers (including captured-resource destruction), read settings and rebuild the UI on the taskbar thread, then resume. The settings callback explicitly requests **no DLL reload**. The live XAML root is reused for edits on the same taskbar.
 
-If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.4. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
+If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.5. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
 
 ![Default component positions](docs/layout.svg)
 
@@ -69,7 +71,7 @@ The DLLs in `build/` are for compiler validation. Install the `.wh.cpp` through 
 | --- | --- |
 | Pure production C++ placement, LRC parsing and romanization | 26 scenarios passed |
 | Randomized placement bounds and collision invariants | 10,000 passed |
-| Windhawk settings defaults, bindings, dropdowns and slider bounds | 158 bindings / 44 sliders checked |
+| Windhawk settings defaults, bindings, dropdowns and slider bounds | 159 bindings / 44 sliders checked |
 | Live settings lifecycle, failure recovery and worker drain | 1,000 callback saves / 100 concurrent-worker cycles passed |
 | Old forced-reload policy mutation | Rejected by the regression test |
 | Address / undefined-behavior sanitizers on C++ regression harness | Passed |

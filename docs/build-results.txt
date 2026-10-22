@@ -1,6 +1,6 @@
 Source: taskbar-fluent-lyrics.wh.cpp
-Version: 3.0.4
-SHA-256: 4e788163351c90a5fb1f49749389b4bf61227ce21f97f2754b3c72e77f5dfb88
+Version: 3.0.5
+SHA-256: b9d5039509b9fb09ef72825587de01b8b4e22747dc47ad140e4575eff3676ca8
 
 PASS: official Windhawk architecture metadata parsing
 PASS: single-file mod structure
@@ -10,7 +10,7 @@ PASS: Windows x64 compilation and linking
 PASS: Windows ARM64 compilation and linking
 PASS: 26 deterministic production-algorithm scenarios
 PASS: 10,000 randomized placement checks
-PASS: 158 settings bindings and 44 bounded slider declarations
+PASS: 159 settings bindings and 44 bounded slider declarations
 PASS: 1,000 settings callbacks requesting no DLL reload
 PASS: 100 active-worker drain cycles including captured-resource destruction
 PASS: settings lifecycle failure recovery

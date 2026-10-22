@@ -8,7 +8,7 @@ The default remains the taskbar left edge. Upgrades preserve existing saved posi
 
 Current automated results:
 
-- Version 3.0.4 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
+- Version 3.0.5 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
 - Single-file structure: no project-local includes; only the `.wh.cpp` is needed for installation.
 
 - Compact preset: tested default 316-DIP budget, smaller custom sizes, unlimited/oversized saved sizes, valid constraints, icon fit, opt-out and unchanged lyrics-only sizing. Geometry confirms a 316-DIP player fits a free slot that rejects the previous 500-DIP layout.
@@ -17,7 +17,7 @@ Current automated results:
 - Production settings lifecycle: normal application and pause/stop/drain/reconfigure/resume failures were exercised; producer recovery was checked.
 - Production worker admission: 100 cycles with active readers blocked new jobs during settings changes and drained old jobs before mutating configuration. Captured-resource destruction was checked before a job is counted as drained.
 - AddressSanitizer / UndefinedBehaviorSanitizer: regression harness passed; this does not instrument Explorer or Windows XAML.
-- Settings: 158 bound settings and 44 slider declarations passed validation.
+- Settings: 159 bound settings and 44 slider declarations passed validation.
 - x64: full Windows DLL compilation and linking passed using LLVM-MinGW 20251104, Windows SDK C++/WinRT 10.0.26100 and Windhawk 1.7.3 import libraries.
 - ARM64: full Windows DLL compilation and linking passed using the same pinned toolchain.
 - Interactive Windows checks and power measurements: not executed in this Linux container.
@@ -34,6 +34,7 @@ Before using this revision as a daily driver, verify the following in Windows 11
 | Playback | Previous / play / pause / next | Selected session responds; play icon follows reported state |
 | Capabilities | App without shuffle, repeat or seeking | Unsupported controls disable or hide as configured |
 | Seek | Use ±5 s after playing for a minute | Seek relative to live playback, bounded by track start/end |
+| Artwork playback | Click or keyboard-activate cover; change playback externally; test no session | Single toggle per activation; Pause while playing and Play while paused; disabled without playback support; layout width unchanged |
 | Artwork | Consecutive songs sharing an album cover | Cover remains visible; changing album replaces it |
 | Session switching | Two apps, automatic and manual switching; close current app | Metadata, capabilities and lyric cues follow selected app |
 | Missing lyrics | Play a track without LRCLIB cues | Lyrics blank; cover and controls continue working |

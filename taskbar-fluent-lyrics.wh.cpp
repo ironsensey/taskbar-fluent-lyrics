@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.4
+// @version         3.0.5
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -182,6 +182,9 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
   - AlbumArtSetting:
     - showAlbumArt: true
       $name: Show album art
+    - albumArtPlaybackButton: true
+      $name: Play/pause button on cover
+      $description: Show a centered play/pause button over the artwork without adding width. Clicking the cover toggles playback. Turn off to use custom cover click actions and the legacy paused indicator.
     - albumArtSide: "auto"
       $name: Cover side
       $options:
@@ -1620,6 +1623,7 @@ struct ModSettings {
     std::wstring emptyIconColor       = L"255 255 255";
     int          emptyIconOpacity     = 100;
     std::wstring albumArtQuality      = L"medium";
+    bool         albumArtPlaybackButton = true;
     bool         showPauseOverlay     = true;
     int          pauseOverlayIconSize = 16;
     int          pauseOverlayOpacity  = 60;
@@ -1956,6 +1960,7 @@ static void LoadSettings() {
     g_settings.emptyIconColor       = Str(L"AppearanceSettings.AlbumArtDisplaySettings.emptyIconColor",       L"255 255 255");
     g_settings.emptyIconOpacity     = Int(L"AppearanceSettings.AlbumArtDisplaySettings.emptyIconOpacity",       0, 100, 100);
     g_settings.albumArtQuality      = Str(L"AppearanceSettings.AlbumArtDisplaySettings.albumArtQuality", L"medium");
+    g_settings.albumArtPlaybackButton = Wh_GetIntSetting(L"MainSettings.AlbumArtSetting.albumArtPlaybackButton") != 0;
     g_settings.showPauseOverlay     = Wh_GetIntSetting(L"AppearanceSettings.AlbumArtDisplaySettings.showPauseOverlay")  != 0;
     g_settings.pauseOverlayIconSize = Int(L"AppearanceSettings.AlbumArtDisplaySettings.pauseOverlayIconSize",     1, 256, 16);
     g_settings.pauseOverlayOpacity  = Int(L"AppearanceSettings.AlbumArtDisplaySettings.pauseOverlayOpacity",     0, 100,  60);
@@ -3058,7 +3063,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     json.clear();
     if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.4 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.5 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -9358,7 +9363,37 @@ static Grid BuildPlayerGrid() {
                 Canvas::SetZIndex(iconOverlay, 15);
                 artContainer.Children().Append(iconOverlay);
             }
-            if (g_settings.showPauseOverlay) {
+            if (g_settings.albumArtPlaybackButton) {
+                // A native Button provides mouse, touch and keyboard activation.
+                // Overlay the cover rather than allocating another horizontal slot.
+                Button playback;
+                playback.Name(L"FluentMedia_ArtPlaybackButton");
+                playback.MinWidth(0);
+                playback.MinHeight(0);
+                playback.Padding({0, 0, 0, 0});
+                playback.BorderThickness({0, 0, 0, 0});
+                playback.CornerRadius(artBorder.CornerRadius());
+                playback.HorizontalAlignment(HorizontalAlignment::Stretch);
+                playback.VerticalAlignment(VerticalAlignment::Stretch);
+                playback.HorizontalContentAlignment(HorizontalAlignment::Center);
+                playback.VerticalContentAlignment(VerticalAlignment::Center);
+                playback.Background(MakeBrush({(BYTE)((g_settings.pauseOverlayOpacity * 255) / 100), 0, 0, 0}));
+                const double iconSize = std::min((double)g_settings.pauseOverlayIconSize,
+                    g_settings.albumArtMaxHeight > 0 ? std::max(8.0, (double)g_settings.albumArtMaxHeight - 4.0)
+                        : (double)g_settings.pauseOverlayIconSize);
+                playback.Content(MakeIconText(GetGlyph(2, false), iconSize, {0xFF, 0xFF, 0xFF, 0xFF}));
+                playback.IsEnabled(false); // Enabled by the current media session's capabilities.
+                Automation::AutomationProperties::SetName(playback, L"Play");
+                ToolTipService::SetToolTip(playback, winrt::box_value(L"Play"));
+                playback.Click([](auto const&, RoutedEventArgs const&) {
+                    if (g_unloading || g_applyingSettings) return;
+                    try { SendMediaCommandAsync(2); }
+                    catch (...) { Wh_Log(L"Artwork playback command failed"); }
+                });
+                Canvas::SetZIndex(playback, 20);
+                artContainer.Children().Append(playback);
+            }
+            if (!g_settings.albumArtPlaybackButton && g_settings.showPauseOverlay) {
                 Border pauseBorder;
                 pauseBorder.Name(L"PauseIconOverlay");
                 pauseBorder.HorizontalAlignment(HorizontalAlignment::Stretch);
@@ -9377,10 +9412,12 @@ static Grid BuildPlayerGrid() {
                 pauseBorder.Child(pauseIcon);
                 artInnerGrid.Children().Append(pauseBorder);
             }
-            if (g_settings.disableAlbumArtClick) {
+            if (g_settings.disableAlbumArtClick && !g_settings.albumArtPlaybackButton) {
                 artContainer.IsHitTestVisible(false);
             } else {
                 artContainer.PointerPressed([](auto const& sender, winrt::Windows::UI::Xaml::Input::PointerRoutedEventArgs const& e) mutable {
+                    if (g_settings.albumArtPlaybackButton) { e.Handled(true); return; }
+                    if (g_settings.disableAlbumArtClick) return;
                     if (auto elem = sender.template try_as<UIElement>()) {
                         elem.CapturePointer(e.Pointer());
                     }
@@ -9390,6 +9427,8 @@ static Grid BuildPlayerGrid() {
                 auto artDblClickLastKind = std::make_shared<winrt::Windows::UI::Input::PointerUpdateKind>(
                     winrt::Windows::UI::Input::PointerUpdateKind::Other);
                 artContainer.PointerReleased([artDblClickLastTime, artDblClickLastKind](auto const& sender, winrt::Windows::UI::Xaml::Input::PointerRoutedEventArgs const& e) mutable {
+                    if (g_settings.albumArtPlaybackButton) { e.Handled(true); return; }
+                    if (g_settings.disableAlbumArtClick) return;
                     bool actuallyHovered = false;
                     if (auto elem = sender.template try_as<UIElement>()) {
                         elem.ReleasePointerCapture(e.Pointer());
@@ -11236,7 +11275,21 @@ static void RefreshPlayerContents() {
                     ct.Foreground(MakeBrush(ButtonColor()));
                 }
             } catch (...) {}
-    if (g_settings.showPauseOverlay && g_settings.showAlbumArt) {
+    if (g_settings.albumArtPlaybackButton && g_settings.showAlbumArt) {
+        if (auto fe = FindChildByName(g_playerGrid, L"FluentMedia_ArtPlaybackButton")) {
+            if (auto button = fe.try_as<Button>()) {
+                try {
+                    button.IsEnabled(hasSession && canPlayPause);
+                    const auto label = isPlaying ? L"Pause" : L"Play";
+                    Automation::AutomationProperties::SetName(button, label);
+                    ToolTipService::SetToolTip(button, winrt::box_value(label));
+                    if (auto icon = button.Content().try_as<TextBlock>())
+                        icon.Text(GetGlyph(2, isPlaying));
+                } catch (...) { Wh_Log(L"Artwork playback button update failed"); }
+            }
+        }
+    }
+    if (!g_settings.albumArtPlaybackButton && g_settings.showPauseOverlay && g_settings.showAlbumArt) {
         if (auto fe = FindChildByName(g_playerGrid, L"PauseIconOverlay"))
             if (auto overlay = fe.try_as<Border>()) {
                 try {
