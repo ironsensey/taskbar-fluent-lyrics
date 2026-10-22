@@ -2,9 +2,11 @@
 
 Automated checks execute production functions extracted from the single-file mod, not simplified copies. The test runner rejects duplicate settings keys, verifies default dropdown selections and settings bindings, and validates slider ranges. It reads both the legacy YAML and the new forward-compatible annotations.
 
+The reported “unexpected Windows error” popup is not reproduced here; its trigger and any Windhawk HRESULT/log details are still needed to identify its cause. Version 3.0.2 independently cancels pending startup timers before UI removal, validates the taskbar COM vtable before querying it, and logs initialization HRESULTs. The default position is now the taskbar left edge. Existing saved positions are preserved; select the left-edge option once when updating.
+
 Current automated results:
 
-- Version 3.0.1 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
+- Version 3.0.2 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
 - Single-file structure: no project-local includes; only the `.wh.cpp` is needed for installation.
 
 - Production algorithms: 23 deterministic scenarios and 10,000 randomized geometry checks passed.

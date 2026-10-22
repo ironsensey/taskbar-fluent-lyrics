@@ -41,6 +41,12 @@ settings = yaml.load(re.sub(r'(?m)^(\s*)#! ', r'\1', settings_text), Loader=Uniq
 # Windhawk 1.7.3 ignores forward-compatible annotations, but must parse the same settings.
 legacy_settings = yaml.load(settings_text, Loader=UniqueLoader)
 assert len(legacy_settings) == len(settings)
+player_settings = next(section['MainSettings'] for section in settings if 'MainSettings' in section)
+player_settings = next(group['PlayerSetting'] for group in player_settings if 'PlayerSetting' in group)
+assert next(item['position'] for item in player_settings if 'position' in item) == 'taskbar_left_edge'
+assert 'std::wstring position             = L"taskbar_left_edge";' in source
+assert 'Str(L"MainSettings.PlayerSetting.position",    L"taskbar_left_edge")' in source
+print('PASS: default position is the left edge in settings, initial state and fallback')
 bindings = set()
 sliders = []
 

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1100" height="245" viewBox="0 0 1100 245">
 <defs><linearGradient id="cover" x2="1" y2="1"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
 <rect width="1100" height="245" rx="16" fill="#111827"/>
-<text x="28" y="35" fill="#f9fafb" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">Default layout · Tray – Far left</text>
+<text x="28" y="35" fill="#f9fafb" font-family="Segoe UI, sans-serif" font-size="20" font-weight="600">Tray placement example · Left-edge overlay is the default</text>
 <text x="28" y="60" fill="#9ca3af" font-family="Segoe UI, sans-serif" font-size="13">Illustration, not a Windows screenshot. Enable Layout preview in the mod to inspect your actual taskbar.</text>
 <rect x="20" y="110" width="1060" height="58" rx="8" fill="#252c3b"/>
 <g fill="#94a3b8"><rect x="48" y="127" width="24" height="24" rx="5"/><rect x="94" y="127" width="24" height="24" rx="5"/><rect x="140" y="127" width="24" height="24" rx="5"/></g>

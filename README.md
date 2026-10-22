@@ -1,4 +1,4 @@
-# Taskbar Fluent Media + Lyrics 3.0.1
+# Taskbar Fluent Media + Lyrics 3.0.2
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
 
@@ -7,11 +7,11 @@ Restores album art, track details and media controls alongside synchronized Roma
 ## Install on Windows
 
 1. Open the existing mod in Windhawk's source editor. Replace its source with **[taskbar-fluent-lyrics.wh.cpp](taskbar-fluent-lyrics.wh.cpp)**, then compile and enable it. Disable any separate copy of the original player to prevent duplicate taskbar injection. The mod ID is preserved for replacement.
-2. In **Main Settings → Media player**, select **Media player and lyrics** and **Tray – Far left**. This placement reserves space beside the native tray. Turn on **Show album art**, **Show track title**, **Show artist name**, **Show media buttons**, and **Show synchronized lyrics** if the previous version saved them as off. New installations enable them by default.
+2. In **Main Settings → Media player**, select **Media player and lyrics** and **Taskbar – Left edge (Overlay)**, the new default. This places the player in the leftmost free taskbar space. On a crowded or left-aligned taskbar, a complete player may not fit; reduce its width/components or select a tray placement. Turn on **Show album art**, **Show track title**, **Show artist name**, **Show media buttons**, and **Show synchronized lyrics** if the previous version saved them as off. New installations enable them by default.
 3. Turn on **Layout preview** to see sample text, a cover placeholder, controls and lyrics without a media app. **Show debug borders** outlines the individual areas. Turn preview off after arranging them.
 4. Start a music app that exposes a Windows media session. The cover comes from that app; missing artwork shows the configured placeholder. Previous/play/next, seek, shuffle and repeat depend on the capabilities the app exposes. Disabled buttons indicate unavailable actions.
 
-The default order is **cover → title/artist → previous/play/next → lyrics → Windows tray**. Cover and controls have independent side selectors; mirror layout changes their automatic sides. Lyrics can be placed on either side of the whole player.
+At the left edge, the default component order is **cover → title/artist → previous/play/next → lyrics**, followed by the native taskbar buttons. Cover and controls have independent side selectors; mirror layout changes their automatic sides. Lyrics can be placed on either side of the whole player.
 
 ## Position and size controls
 
@@ -25,6 +25,7 @@ The default order is **cover → title/artist → previous/play/next → lyrics 
 
 ## Changes affecting power and reliability
 
+- Startup retries are canceled before removing the UI or unloading the module; initialization exceptions are logged with HRESULT codes. The optional success notification now writes a log entry instead of opening a modal Windows dialog. These fixes do not identify an unspecified Windows error popup.
 - The full interface is compiled and the component visibility switches are honored. Lyrics remain optional rather than disabling the player.
 - Lyric cue updates refresh only the lyric visual, avoiding full-player tree walks, cover copies and artwork decoding on every line.
 - Media-properties requests are coalesced. Superseded requests and previous-session updates cannot commit metadata over a newly selected session.

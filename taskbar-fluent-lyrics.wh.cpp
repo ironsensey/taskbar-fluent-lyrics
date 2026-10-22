@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.1
+// @version         3.0.2
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -18,8 +18,8 @@ Album art, track details, playback controls and synced lyrics share one player.
 Default order: **cover | title / artist | previous, play / pause, next | lyrics**.
 Mirror layout reverses the cover and controls. Their sides can also be chosen independently.
 
-Start with **Tray - Far left**, which reserves its own taskbar space. Taskbar overlay
-positions use free space between Windows controls; if the full player cannot fit it
+The default is **Taskbar - Left edge (Overlay)**. It uses the leftmost available
+space between Windows controls; if the full player cannot fit it
 hides instead of covering your apps. Hidden Search / Task View / Widgets anchors fall
 back to the left of the tray, with a Windhawk log message. Enable **Layout preview**
 and **Show debug borders** to find the cover and each component even with no music.
@@ -76,7 +76,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       #! $max: 120
       #! $format: slider
       $name: Player height (DIPs; 0 = legacy min-max)
-    - position: "tray_left"
+    - position: "taskbar_left_edge"
       $name: Media player position
       $name:ru-RU: Расположение медиаплеера
       $options:
@@ -1267,10 +1267,8 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
 
 - NotificationSettings:
   - showSuccessNotification: false
-    $name: Show notification on successful mod load
-    $name:ru-RU: Показывать уведомление при успешной загрузке мода
-    $description: Display a Windows notification when the mod is successfully loaded or reloaded
-    $description:ru-RU: Отображать уведомление Windows при успешной загрузке или перезагрузке мода
+    $name: Log successful startup (no popup)
+    $description: Write successful initialization to the Windhawk log. No modal Windows notification is opened.
   $name: Notification Settings
   $name:ru-RU: Настройки уведомлений
 
@@ -1540,7 +1538,7 @@ struct ModSettings {
     int          lyricsAdaptiveGap = 12;
     int          lyricsResizeAnimationMs = 220;
     int          monitor              = 1;
-    std::wstring position             = L"tray_left";
+    std::wstring position             = L"taskbar_left_edge";
     std::wstring albumArtLeftClick    = L"none";
     std::wstring albumArtRightClick   = L"none";
     std::wstring albumArtMiddleClick  = L"none";
@@ -1875,7 +1873,7 @@ static void LoadSettings() {
     g_settings.lyricsAdaptiveGap       = Int(L"LyricsSettings.lyricsAdaptiveGap", 0, 50, 12);
     g_settings.lyricsResizeAnimationMs = Int(L"LyricsSettings.lyricsResizeAnimationMs", 80, 800, 220);
     g_settings.monitor               = std::max(1, Wh_GetIntSetting(L"MainSettings.PlayerSetting.monitor"));
-    g_settings.position             = Str(L"MainSettings.PlayerSetting.position",    L"tray_left");
+    g_settings.position             = Str(L"MainSettings.PlayerSetting.position",    L"taskbar_left_edge");
     ParseMargin(L"MainSettings.PlayerSetting.playerMargin", L"4 4", g_settings.playerMarginLeft, g_settings.playerMarginRight);
     ParseMargin(L"MainSettings.PlayerSetting.playerWidth", L"0 0", g_settings.playerMinWidth, g_settings.playerMaxWidth);
     ParseMargin(L"MainSettings.PlayerSetting.playerHeight", L"40 40", g_settings.playerMinHeight, g_settings.playerMaxHeight);
@@ -2303,17 +2301,22 @@ static int              g_playerColumn    = -1;
 [[clang::no_destroy]] static ToolTip          g_playerToolTip   = nullptr;
 static std::atomic<bool> g_needsUiUpdate{false};
 static void ShowSuccessNotification() {
-    if (!g_settings.showSuccessNotification) {
-        return;
+    if (g_settings.showSuccessNotification) Wh_Log(L"Taskbar media player initialized successfully");
+}
+// The retry timer must be canceled on the XAML thread before module unload.
+[[clang::no_destroy]] static DispatcherTimer g_startupRetryTimer{nullptr};
+static winrt::event_token g_startupRetryToken{};
+static uint64_t g_startupRetryGeneration = 0;
+static void CancelStartupRetry() {
+    ++g_startupRetryGeneration;
+    if (g_startupRetryTimer) {
+        try { g_startupRetryTimer.Stop(); } catch (...) {}
+        if (g_startupRetryToken.value) {
+            try { g_startupRetryTimer.Tick(g_startupRetryToken); } catch (...) {}
+        }
+        g_startupRetryTimer = nullptr;
     }
-    std::thread([]() {
-        MessageBoxW(
-            nullptr,
-            L"Media player successfully loaded and ready to use",
-            L"Taskbar Fluent Media Player",
-            MB_ICONINFORMATION | MB_OK | MB_TOPMOST | MB_SETFOREGROUND
-        );
-    }).detach();
+    g_startupRetryToken = {};
 }
 
 [[clang::no_destroy]] static FrameworkElement g_trackedElement = nullptr;
@@ -6712,6 +6715,27 @@ static XamlRoot GetTaskbarXamlRoot(HWND hTaskbarWnd) {
             Std_Ref_Decref_Original(taskbarHostSharedPtr[1]);
         return nullptr;
     }
+    void* vtable = nullptr;
+    SIZE_T copied = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(), taskbarElementIUnknown, &vtable, sizeof(vtable), &copied) ||
+        copied != sizeof(vtable) || !IsReadableMemoryRange(vtable, 3 * sizeof(void*))) {
+        Wh_Log(L"GetTaskbarXamlRoot: invalid taskbar COM object; refusing to query it");
+        if (taskbarHostSharedPtr[1] && Std_Ref_Decref_Original) Std_Ref_Decref_Original(taskbarHostSharedPtr[1]);
+        return nullptr;
+    }
+    void* methods[3]{};
+    bool validMethods = ReadProcessMemory(GetCurrentProcess(), vtable, methods, sizeof(methods), &copied) && copied == sizeof(methods);
+    for (void* method : methods) {
+        MEMORY_BASIC_INFORMATION memory{};
+        validMethods = validMethods && method && VirtualQuery(method, &memory, sizeof(memory)) &&
+            memory.State == MEM_COMMIT && !(memory.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+            (memory.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+    }
+    if (!validMethods) {
+        Wh_Log(L"GetTaskbarXamlRoot: invalid IUnknown methods; taskbar layout may be unsupported");
+        if (taskbarHostSharedPtr[1] && Std_Ref_Decref_Original) Std_Ref_Decref_Original(taskbarHostSharedPtr[1]);
+        return nullptr;
+    }
     FrameworkElement taskbarElement{nullptr};
     HRESULT hr = taskbarElementIUnknown->QueryInterface(
         winrt::guid_of<FrameworkElement>(), winrt::put_abi(taskbarElement));
@@ -10576,12 +10600,16 @@ static bool InjectPlayerGrid() {
         OnSessionsChanged();
         g_needsUiUpdate = true;
         return true;
+    } catch (winrt::hresult_error const& error) {
+        Wh_Log(L"InjectPlayerGrid: HRESULT 0x%08X: %s", static_cast<unsigned>(error.code()), error.message().c_str());
+        return false;
     } catch (...) {
         Wh_Log(L"InjectPlayerGrid: Exception during injection");
         return false;
     }
 }
 static void RemovePlayerGrid() {
+    CancelStartupRetry();
     for (auto& cleanup : g_uiCleanup) { try { cleanup(); } catch (...) {} }
     g_uiCleanup.clear();
     try { if (g_lyricsWidthStoryboard) g_lyricsWidthStoryboard.Stop(); } catch (...) {}
@@ -11557,40 +11585,42 @@ static void ApplySettings() {
     }
 }
 static void ApplySettingsWithRetry(FrameworkElement xamlRootContent, int retryCount = 0) {
-    static constexpr int kMaxRetries = 50;
-    auto retry = [&]() {
-        if (retryCount >= kMaxRetries) {
-            Wh_Log(L"ApplySettingsWithRetry: giving up after %d retries, SystemTray.SystemTrayFrame not found", kMaxRetries);
-            return;
+    if (g_unloading) return;
+    bool ready = false;
+    try {
+        if (!xamlRootContent && g_taskbarWnd) {
+            if (auto root = GetTaskbarXamlRoot(g_taskbarWnd)) xamlRootContent = root.Content().try_as<FrameworkElement>();
         }
-        auto timer = DispatcherTimer();
-        timer.Interval(winrt::Windows::Foundation::TimeSpan{
-            std::chrono::milliseconds(100)});
-        auto tickToken = std::make_shared<winrt::event_token>();
-        *tickToken = timer.Tick(
-            [timer, tickToken, xamlRootContent, retryCount](
-                winrt::Windows::Foundation::IInspectable const&,
-                winrt::Windows::Foundation::IInspectable const&) {
-                timer.Stop();
-                timer.Tick(*tickToken);
-                ApplySettingsWithRetry(xamlRootContent, retryCount + 1);
-            });
-        timer.Start();
-    };
-    if (g_unloading) {
+        if (xamlRootContent && FindTaskbarRootGrid(xamlRootContent)) {
+            ApplySettings();
+            ready = g_playerGrid != nullptr;
+        }
+    } catch (winrt::hresult_error const& error) {
+        Wh_Log(L"Taskbar initialization failed: HRESULT 0x%08X", static_cast<unsigned>(error.code()));
+    } catch (...) {
+        Wh_Log(L"Taskbar initialization failed; waiting for the taskbar tree");
+    }
+    if (ready || g_unloading) return;
+    constexpr int kMaxRetries = 50;
+    if (retryCount >= kMaxRetries) {
+        Wh_Log(L"Taskbar player could not initialize after %d attempts; check Windows build and taskbar symbols", kMaxRetries);
         return;
     }
-    auto systemTrayFrame = FindChildByClassName(xamlRootContent, L"SystemTray.SystemTrayFrame");
-    if (!systemTrayFrame) {
-        retry();
-        return;
+    CancelStartupRetry();
+    const uint64_t generation = g_startupRetryGeneration;
+    try {
+        g_startupRetryTimer = DispatcherTimer();
+        g_startupRetryTimer.Interval(std::chrono::milliseconds(100));
+        g_startupRetryToken = g_startupRetryTimer.Tick([generation, retryCount](auto const&, auto const&) {
+            if (generation != g_startupRetryGeneration || g_unloading) return;
+            CancelStartupRetry();
+            ApplySettingsWithRetry(nullptr, retryCount + 1);
+        });
+        g_startupRetryTimer.Start();
+    } catch (...) {
+        CancelStartupRetry();
+        Wh_Log(L"Cannot schedule taskbar initialization retry");
     }
-    auto systemTrayFrameGrid = FindChildByName(systemTrayFrame, L"SystemTrayFrameGrid");
-    if (!systemTrayFrameGrid) {
-        retry();
-        return;
-    }
-    ApplySettings();
 }
 using TrayUI_StartTaskbar_t = void(WINAPI*)(void*);
 static TrayUI_StartTaskbar_t TrayUI_StartTaskbar_Original = nullptr;
@@ -11640,17 +11670,7 @@ static void WINAPI TrayUI_StartTaskbar_Hook(void* pThis) {
     if (!g_settings.lyricsOnly && (g_settings.enableTitleScrolling || g_settings.enableArtistScrolling)) {
         StartScrollTimer();
     }
-    auto xamlRoot = GetTaskbarXamlRoot(hWnd);
-    if (!xamlRoot) {
-        Wh_Log(L"InjectPlayerGrid: Failed to get XAML root");
-        return;
-    }
-    auto xamlRootContent = xamlRoot.Content().try_as<FrameworkElement>();
-    if (!xamlRootContent) {
-        Wh_Log(L"InjectPlayerGrid: Failed to get XAML root content");
-        return;
-    }
-    ApplySettingsWithRetry(xamlRootContent);
+    ApplySettingsWithRetry(nullptr);
 }
 static bool HookTaskbarDllSymbols() {
     static const wchar_t* const kCandidates[] = {
@@ -11710,7 +11730,7 @@ void Wh_ModAfterInit() {
             g_cachedPaletteHash = 0;
             g_cachedAppIconSize = -1;
             g_blurBgCache.Invalidate();
-            ApplySettings();
+            ApplySettingsWithRetry(nullptr);
             if (g_playerGrid) {
                 ShowSuccessNotification();
                 RefreshPlayerContents();
