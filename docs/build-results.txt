@@ -1,0 +1,10 @@
+Source: taskbar-fluent-lyrics.wh.cpp
+SHA-256: 143371636edea5eb316179005dbc32b864087432ba061725b3f0a18774e4ee58
+
+PASS: Windows x64 compilation and linking
+PASS: Windows ARM64 compilation and linking
+PASS: 23 deterministic production-algorithm scenarios
+PASS: 10,000 randomized placement checks
+PASS: 157 settings bindings and 44 bounded slider declarations
+
+Windows Explorer runtime and actual CPU/battery measurements were not run in the Linux cloud environment.
