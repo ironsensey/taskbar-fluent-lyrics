@@ -8,15 +8,16 @@ The default remains the taskbar left edge. Upgrades preserve existing saved posi
 
 Current automated results:
 
-- Version 3.0.3 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
+- Version 3.0.4 metadata: accepted by the official Windhawk mod parser. `x86-64` is a single valid value covering x64 and ARM64; it must not be followed by `arm64` on the same line.
 - Single-file structure: no project-local includes; only the `.wh.cpp` is needed for installation.
 
+- Compact preset: tested default 316-DIP budget, smaller custom sizes, unlimited/oversized saved sizes, valid constraints, icon fit, opt-out and unchanged lyrics-only sizing. Geometry confirms a 316-DIP player fits a free slot that rejects the previous 500-DIP layout.
 - Production algorithms: 26 deterministic scenarios and 10,000 randomized geometry checks passed.
 - Production settings callback: 1,000 saves with both successful and rejected updates requested no DLL reload. The former forced-reload callback is rejected by the mutation test.
 - Production settings lifecycle: normal application and pause/stop/drain/reconfigure/resume failures were exercised; producer recovery was checked.
 - Production worker admission: 100 cycles with active readers blocked new jobs during settings changes and drained old jobs before mutating configuration. Captured-resource destruction was checked before a job is counted as drained.
 - AddressSanitizer / UndefinedBehaviorSanitizer: regression harness passed; this does not instrument Explorer or Windows XAML.
-- Settings: 157 bound settings and 44 slider declarations passed validation.
+- Settings: 158 bound settings and 44 slider declarations passed validation.
 - x64: full Windows DLL compilation and linking passed using LLVM-MinGW 20251104, Windows SDK C++/WinRT 10.0.26100 and Windhawk 1.7.3 import libraries.
 - ARM64: full Windows DLL compilation and linking passed using the same pinned toolchain.
 - Interactive Windows checks and power measurements: not executed in this Linux container.
@@ -26,6 +27,7 @@ Before using this revision as a daily driver, verify the following in Windows 11
 | Area | Exercise | Expected |
 | --- | --- | --- |
 | Install | Replace source; enable full mode and all desired visibility switches | Cover, track info, controls and lyrics coexist |
+| Compact layout | Leave compact mode on; test long titles, cover, lyrics and three buttons | Content fits about 316 DIPs; names truncate; controls remain usable |
 | Preview | Enable preview with no media app; enable debug borders | Cover placeholder and each enabled section are visible; disabled playback remains disabled |
 | Settings | Move slider / edit adjacent number, save | Both represent the same value; UI rebuilds in place, without DLL unload |
 | Legacy settings | Open in Windhawk 1.7.3 | Numeric controls appear; new annotations do not break parsing |

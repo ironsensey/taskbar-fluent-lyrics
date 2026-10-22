@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.3
+// @version         3.0.4
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -53,6 +53,9 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       $options:
       - full: Media player and lyrics
       - lyrics_only: Lyrics only
+    - compactLayout: true
+      $name: Compact horizontal layout
+      $description: Fit content with a cover up to 28 DIPs, track text up to 80, lyrics up to 120 and buttons up to 24. Reduces horizontal gaps and overrides whole-player width limits. Turn off to use larger custom sizes.
     - previewLayout: false
       $name: Layout preview (turn off after arranging)
       $description: Show sample text, a cover placeholder and lyrics even when no media app is open. Playback buttons still control only a real media session.
@@ -1519,6 +1522,32 @@ static Placement Place(double extent, double requested, double minimum,
 }
 // END PORTABLE PLAYER GEOMETRY
 
+// BEGIN PORTABLE COMPACT LAYOUT
+// Apply after normalizing persisted sizes so upgrades also get the compact preset.
+template <class Settings>
+static void ApplyCompactLayout(Settings& settings) {
+    if (!settings.compactLayout || settings.lyricsOnly) return;
+    auto capSize = [](int& minimum, int& maximum, int cap) {
+        maximum = maximum > 0 ? std::min(maximum, cap) : cap;
+        minimum = std::min(minimum, maximum);
+    };
+    settings.playerMinWidth = settings.playerMaxWidth = 0; // Fit actual content.
+    capSize(settings.albumArtMinWidth, settings.albumArtMaxWidth, 28);
+    capSize(settings.albumArtMinHeight, settings.albumArtMaxHeight, 28);
+    capSize(settings.textAreaMinWidth, settings.textAreaMaxWidth, 80);
+    settings.lyricsWidth = std::min(settings.lyricsWidth, 120);
+    settings.buttonSize = std::min(settings.buttonSize, 24);
+    settings.buttonIconSize = std::min(settings.buttonIconSize, settings.buttonSize - 4);
+    settings.buttonSpacing = std::clamp(settings.buttonSpacing, 0, 2);
+    for (int* margin : {&settings.playerMarginLeft, &settings.playerMarginRight,
+                       &settings.albumArtLeftMargin, &settings.albumArtRightMargin,
+                       &settings.textAreaLeftMargin, &settings.textAreaRightMargin,
+                       &settings.mediaButtonsLeftMargin, &settings.mediaButtonsRightMargin})
+        *margin = std::clamp(*margin, 0, 2);
+}
+// END PORTABLE COMPACT LAYOUT
+
+
 using namespace winrt::Windows::UI::Xaml;
 using namespace winrt::Windows::UI::Xaml::Controls;
 using namespace winrt::Windows::UI::Xaml::Media;
@@ -1534,6 +1563,7 @@ enum class VizAnchor { Top, Middle, Bottom };
 struct ModSettings {
     bool         lyricsOnly           = false;
     bool         showLyrics           = true;
+    bool         compactLayout        = true;
     bool         previewLayout        = false;
     int          horizontalOffset     = 0;
     int          verticalOffset       = 0;
@@ -1869,6 +1899,7 @@ static void LoadSettings() {
     };
     g_settings.lyricsOnly = Str(L"MainSettings.PlayerSetting.displayMode", L"full") == L"lyrics_only";
     g_settings.showLyrics = g_settings.lyricsOnly || Wh_GetIntSetting(L"LyricsSettings.showLyrics") != 0;
+    g_settings.compactLayout = Wh_GetIntSetting(L"MainSettings.PlayerSetting.compactLayout") != 0;
     g_settings.previewLayout = Wh_GetIntSetting(L"MainSettings.PlayerSetting.previewLayout") != 0;
     g_settings.horizontalOffset = Int(L"MainSettings.PlayerSetting.horizontalOffset", -1000, 1000, 0);
     g_settings.verticalOffset = Int(L"MainSettings.PlayerSetting.verticalOffset", -80, 80, 0);
@@ -2220,6 +2251,7 @@ static void LoadSettings() {
     normalizeSize(g_settings.albumArtMinHeight, g_settings.albumArtMaxHeight, 120);
     normalizeSize(g_settings.textAreaMinWidth, g_settings.textAreaMaxWidth, 1200);
     normalizeSize(g_settings.textAreaMinHeight, g_settings.textAreaMaxHeight, 120);
+    ApplyCompactLayout(g_settings);
     if (g_settings.position == L"taskbar_left")
         g_settings.position = L"taskbar_left_start";
     else if (g_settings.position == L"taskbar_right")
@@ -3026,7 +3058,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     json.clear();
     if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.3 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.4 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -9185,7 +9217,8 @@ static Grid BuildPlayerGrid() {
         panel.VerticalAlignment(VerticalAlignment::Center);
         panel.HorizontalAlignment(HorizontalAlignment::Stretch);
         if (hasTextOrButtons) {
-            panel.Margin({4, 2, 4, 2});
+            const double inset = g_settings.compactLayout ? 2.0 : 4.0;
+            panel.Margin({inset, 2, inset, 2});
         }
         AddLayoutAnchorOverlay(panel, L"FluentMedia_DebugPanelAnchors", {0xD0, 0x00, 0xFF, 0x00});
         if (g_settings.showDebugBorders) {
@@ -9772,7 +9805,8 @@ static Grid BuildPlayerGrid() {
             lyricOffset.Y(g_settings.lyricsVerticalOffset);
             lyrics.RenderTransform(lyricOffset);
             lyrics.Children().RemoveAt(0); // The outer player already owns the background.
-            lyrics.Margin({6, 0, 6, 0});
+            const double gap = g_settings.compactLayout ? 2.0 : 6.0;
+            lyrics.Margin({gap, 0, gap, 0});
             ColumnDefinition lyricColumn;
             lyricColumn.Width({1.0, GridUnitType::Auto});
             if (g_settings.lyricsSide == L"left") {

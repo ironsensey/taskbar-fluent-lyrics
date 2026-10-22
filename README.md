@@ -1,10 +1,12 @@
-# Taskbar Fluent Media + Lyrics 3.0.3
+# Taskbar Fluent Media + Lyrics 3.0.4
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
 
+**Compact layout in 3.0.4:** enabled by default, including upgrades. The usual cover, title/artist, three buttons and lyrics occupy at most about **316 DIPs**, compared with roughly 500 before. Track names truncate with an ellipsis; lyrics keep the existing wrapping option. No controls are removed. Smaller custom sizes still work. Disable **Main Settings → Media player → Compact horizontal layout** to restore larger custom sizes and whole-player width limits. Additional buttons or the optional visualizer need extra space.
+
 **Settings-save crash fix in 3.0.3:** the previous callback requested a full DLL unload/reload on every settings save. XAML callbacks can outlive removal of their UI tree, making that policy unsafe. Settings now apply in place: pause admission of new jobs, stop producers, drain workers (including captured-resource destruction), read settings and rebuild the UI on the taskbar thread, then resume. The settings callback explicitly requests **no DLL reload**. The live XAML root is reused for edits on the same taskbar.
 
-If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.3. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
+If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.4. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
 
 ![Default component positions](docs/layout.svg)
 
@@ -21,7 +23,7 @@ At the left edge, the default component order is **cover → title/artist → pr
 
 - Whole-player X/Y offsets, fixed width/height, square cover size, lyric width/font/timing/offsets, title/artist fonts, button sizes and opacity have bounded number settings.
 - **44 settings** declare native slider metadata with a number input beside it on Windhawk 2.x builds that support `$format: slider`. Windhawk **1.7.3 uses number inputs**; mods cannot add native rails to that version's editor. The new annotations use forward-compatible comments so 1.7.3 can still read the settings.
-- A zero width means fit content, respecting the older min/max text fields. A zero cover size or player height uses their older min/max fields. Nonzero simple-size settings take precedence over those legacy pairs. If you make the whole player narrower than all its content, reduce lyric/text/cover/button sizes too.
+- With compact layout off, a zero width means fit content, respecting the older min/max text fields. A zero cover size or player height uses their older min/max fields. Nonzero simple-size settings take precedence over those legacy pairs. If you make the whole player narrower than all its content, reduce lyric/text/cover/button sizes too.
 - All dimensions are DIPs, so a 32-DIP cover is 48 physical pixels at 150% scaling. Monitor numbering follows Windows monitor enumeration, which can differ from Display Settings.
 - Tray positions support both the older **Grid** and newer **StackPanel** taskbar templates. Grid insertion/removal preserves neighboring columns and spans.
 - Taskbar positions share one overlay placement routine. It avoids recognized taskbar controls and searches for free space on the requested side of an anchor. Center selects the nearest available slot. Lyrics-only mode can narrow; the full player hides if no slot fits its controls. It never moves or shrinks Windows' app buttons. A hidden/missing configured anchor falls back to the left of the tray, with a log message. If a displayed anchor later disappears, the overlay hides until it returns; change placement to move it immediately.
@@ -67,10 +69,11 @@ The DLLs in `build/` are for compiler validation. Install the `.wh.cpp` through 
 | --- | --- |
 | Pure production C++ placement, LRC parsing and romanization | 26 scenarios passed |
 | Randomized placement bounds and collision invariants | 10,000 passed |
-| Windhawk settings defaults, bindings, dropdowns and slider bounds | 157 bindings / 44 sliders checked |
+| Windhawk settings defaults, bindings, dropdowns and slider bounds | 158 bindings / 44 sliders checked |
 | Live settings lifecycle, failure recovery and worker drain | 1,000 callback saves / 100 concurrent-worker cycles passed |
 | Old forced-reload policy mutation | Rejected by the regression test |
 | Address / undefined-behavior sanitizers on C++ regression harness | Passed |
+| Compact preset, saved-size caps, custom opt-out and free-space fit | Passed |
 | Full x64 Windows compile and link | Passed |
 | Full ARM64 Windows compile and link | Passed |
 | Explorer rendering, clicks, music-app integration, monitor/DPI changes | Requires Windows verification |

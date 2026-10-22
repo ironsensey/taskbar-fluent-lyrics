@@ -52,7 +52,9 @@ player_settings = next(group['PlayerSetting'] for group in player_settings if 'P
 assert next(item['position'] for item in player_settings if 'position' in item) == 'taskbar_left_edge'
 assert 'std::wstring position             = L"taskbar_left_edge";' in source
 assert 'Str(L"MainSettings.PlayerSetting.position",    L"taskbar_left_edge")' in source
-print('PASS: default position is the left edge in settings, initial state and fallback')
+assert next(item['compactLayout'] for item in player_settings if 'compactLayout' in item) is True
+assert 'ApplyCompactLayout(g_settings);' in source
+print('PASS: compact mode enabled by default; default position is the left edge')
 bindings = set()
 sliders = []
 
@@ -88,7 +90,8 @@ includes = '''#include <algorithm>\n#include <cmath>\n#include <cstdint>\n#inclu
 geometry = between('// BEGIN PORTABLE PLAYER GEOMETRY\n', '// END PORTABLE PLAYER GEOMETRY')
 lyrics = source[source.index('static std::vector<LyricCue> ParseLrcLines('):source.index('static std::wstring NormalizeLyricsMatch(')]
 # The chunk also includes normalization helpers, all independent of Windows APIs.
-program = includes + geometry + '\nstruct LyricCue { int64_t timeMs; std::wstring text; };\n' + lyrics
+compact = between('// BEGIN PORTABLE COMPACT LAYOUT\n', '// END PORTABLE COMPACT LAYOUT')
+program = includes + geometry + compact + '\nstruct LyricCue { int64_t timeMs; std::wstring text; };\n' + lyrics
 # Exercise the actual dispatch guard without requiring Explorer or Windows SDK runtime.
 # The stand-in supplies only the HRESULT/message interface consumed by this pure C++ guard.
 program += r"""
@@ -124,6 +127,7 @@ static bool ApplySettingsLive() { return testLiveSettingsSuccess; }
 """
 program += source[source.index('BOOL Wh_ModSettingsChanged('):]
 program += (ROOT / 'tests/settings_lifecycle.cpp').read_text()
+program += (ROOT / 'tests/compact_layout.cpp').read_text()
 program += (ROOT / 'tests/portable_tests.cpp').read_text()
 with tempfile.TemporaryDirectory(prefix='taskbar-player-tests-') as temp:
     cpp = Path(temp, 'tests.cpp')
