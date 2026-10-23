@@ -82,5 +82,6 @@ int main() {
     assert(testLogCount == 2);
     TestSettingsLifecycle();
     TestCompactLayout();
+    TestDoubleClick();
     std::cout << "PASS: 26 scenarios and 10,000 randomized placement checks\n";
 }

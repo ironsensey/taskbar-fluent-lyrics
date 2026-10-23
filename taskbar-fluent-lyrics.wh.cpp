@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.5
+// @version         3.0.6
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -56,6 +56,20 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
     - compactLayout: true
       $name: Compact horizontal layout
       $description: Fit content with a cover up to 28 DIPs, track text up to 80, lyrics up to 120 and buttons up to 24. Reduces horizontal gaps and overrides whole-player width limits. Turn off to use larger custom sizes.
+    - doubleClickTarget: "none"
+      $name: Double-click target
+      $description: Choose where the double-click action works. Off preserves existing click behavior. With the cover playback button enabled, a single cover click waits for the Windows double-click interval to prevent conflicting actions.
+      $options:
+      - none: Off
+      - lyrics: Lyrics
+      - album_art: Album artwork
+      - both: Lyrics and album artwork
+    - doubleClickAction: "open_app"
+      $name: Double-click action
+      $options:
+      - open_app: Open music app
+      - open_mini_player: Open expanded player
+      - play_pause: Play / pause
     - previewLayout: false
       $name: Layout preview (turn off after arranging)
       $description: Show sample text, a cover placeholder and lyrics even when no media app is open. Playback buttons still control only a real media session.
@@ -1550,6 +1564,29 @@ static void ApplyCompactLayout(Settings& settings) {
 }
 // END PORTABLE COMPACT LAYOUT
 
+// BEGIN PORTABLE DOUBLE CLICK
+namespace DoubleClickGesture {
+struct State {
+    bool pending = false;
+    uint64_t time = 0;
+    double x = 0, y = 0;
+    enum class Result { Pending, FlushSingle, Double };
+    Result Click(uint64_t now, double px, double py, uint64_t interval, double dx, double dy) {
+        if (pending && now >= time && now - time <= interval &&
+            std::abs(px - x) <= dx && std::abs(py - y) <= dy) {
+            pending = false;
+            return Result::Double;
+        }
+        const bool flush = pending;
+        pending = true; time = now; x = px; y = py;
+        return flush ? Result::FlushSingle : Result::Pending;
+    }
+    bool Flush() { const bool result = pending; pending = false; return result; }
+};
+}
+// END PORTABLE DOUBLE CLICK
+
+
 
 using namespace winrt::Windows::UI::Xaml;
 using namespace winrt::Windows::UI::Xaml::Controls;
@@ -1567,6 +1604,8 @@ struct ModSettings {
     bool         lyricsOnly           = false;
     bool         showLyrics           = true;
     bool         compactLayout        = true;
+    std::wstring doubleClickTarget    = L"none";
+    std::wstring doubleClickAction    = L"open_app";
     bool         previewLayout        = false;
     int          horizontalOffset     = 0;
     int          verticalOffset       = 0;
@@ -1904,6 +1943,12 @@ static void LoadSettings() {
     g_settings.lyricsOnly = Str(L"MainSettings.PlayerSetting.displayMode", L"full") == L"lyrics_only";
     g_settings.showLyrics = g_settings.lyricsOnly || Wh_GetIntSetting(L"LyricsSettings.showLyrics") != 0;
     g_settings.compactLayout = Wh_GetIntSetting(L"MainSettings.PlayerSetting.compactLayout") != 0;
+    g_settings.doubleClickTarget = Str(L"MainSettings.PlayerSetting.doubleClickTarget", L"none");
+    g_settings.doubleClickAction = Str(L"MainSettings.PlayerSetting.doubleClickAction", L"open_app");
+    if (g_settings.doubleClickTarget != L"lyrics" && g_settings.doubleClickTarget != L"album_art" &&
+        g_settings.doubleClickTarget != L"both") g_settings.doubleClickTarget = L"none";
+    if (g_settings.doubleClickAction != L"open_app" && g_settings.doubleClickAction != L"open_mini_player" &&
+        g_settings.doubleClickAction != L"play_pause") g_settings.doubleClickAction = L"open_app";
     g_settings.previewLayout = Wh_GetIntSetting(L"MainSettings.PlayerSetting.previewLayout") != 0;
     g_settings.horizontalOffset = Int(L"MainSettings.PlayerSetting.horizontalOffset", -1000, 1000, 0);
     g_settings.verticalOffset = Int(L"MainSettings.PlayerSetting.verticalOffset", -80, 80, 0);
@@ -3063,7 +3108,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     json.clear();
     if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.5 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.6 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -4797,6 +4842,88 @@ static void ExecuteMediaAction(const std::wstring& action, FrameworkElement cons
             }
         });
     }
+}
+static bool DoubleClickEnabled(const wchar_t* target) {
+    return g_settings.doubleClickTarget == target || g_settings.doubleClickTarget == L"both";
+}
+static bool LyricsInteractive() {
+    return DoubleClickEnabled(L"lyrics");
+}
+static void RunDoubleClickAction(FrameworkElement const& source) {
+    if (g_unloading || g_applyingSettings) return;
+    try { ExecuteMediaAction(g_settings.doubleClickAction, source); }
+    catch (...) { Wh_Log(L"Double-click action failed"); }
+}
+static void BindDoubleTap(FrameworkElement const& target) {
+    target.IsDoubleTapEnabled(true);
+    target.DoubleTapped([](auto const& sender, DoubleTappedRoutedEventArgs const& args) {
+        args.Handled(true);
+        if (auto source = sender.template try_as<FrameworkElement>()) RunDoubleClickAction(source);
+    });
+}
+static void RunArtworkSingleClick() {
+    if (g_unloading || g_applyingSettings) return;
+    { std::lock_guard<std::mutex> lock(g_mediaMtx); if (!g_media.canPlayPause) return; }
+    SendMediaCommandAsync(2);
+}
+// The cover uses native Click for keyboard activation and a single one-shot timer.
+// Its callback holds only a weak state; cleanup cancels it before removing the UI.
+static void BindArtworkPlayback(Button const& button) {
+    struct ClickState {
+        DoubleClickGesture::State gesture;
+        double x = 0, y = 0;
+        DispatcherTimer timer{nullptr};
+        winrt::event_token token{};
+    };
+    auto state = std::make_shared<ClickState>();
+    if (DoubleClickEnabled(L"album_art")) {
+        state->timer = DispatcherTimer();
+        state->timer.Interval(std::chrono::milliseconds(GetDoubleClickTime() + 1));
+        state->token = state->timer.Tick([weak = std::weak_ptr<ClickState>(state)](auto const&, auto const&) {
+            if (auto current = weak.lock()) {
+                if (!current->timer) return;
+                try {
+                    current->timer.Stop();
+                    if (current->gesture.Flush()) RunArtworkSingleClick();
+                } catch (...) { current->gesture.Flush(); Wh_Log(L"Delayed cover playback failed"); }
+            }
+        });
+        g_uiCleanup.push_back([state] {
+            state->gesture.Flush();
+            if (state->timer) {
+                try { state->timer.Stop(); } catch (...) {}
+                try { state->timer.Tick(state->token); } catch (...) {}
+                state->timer = nullptr;
+            }
+        });
+        button.AddHandler(UIElement::PointerPressedEvent(), winrt::box_value(PointerEventHandler(
+            [state](auto const& sender, PointerRoutedEventArgs const& args) {
+                if (auto element = sender.template try_as<UIElement>()) {
+                    try {
+                        const auto point = args.GetCurrentPoint(element).Position();
+                        state->x = point.X; state->y = point.Y;
+                    } catch (...) { state->gesture.Flush(); }
+                }
+            })), true);
+    }
+    button.Click([state](auto const& sender, RoutedEventArgs const&) {
+        if (g_unloading || g_applyingSettings) return;
+        try {
+            if (!DoubleClickEnabled(L"album_art")) { RunArtworkSingleClick(); return; }
+            if (!state->timer) return; // Already removed/reconfigured.
+            state->timer.Stop();
+            const double scale = std::max(1.0, GetDpiForWindow(g_taskbarWnd) / 96.0);
+            const auto result = state->gesture.Click(GetTickCount64(), state->x, state->y,
+                GetDoubleClickTime(), GetSystemMetrics(SM_CXDOUBLECLK) / (2.0 * scale),
+                GetSystemMetrics(SM_CYDOUBLECLK) / (2.0 * scale));
+            if (result == DoubleClickGesture::State::Result::Double) {
+                if (auto source = sender.template try_as<FrameworkElement>()) RunDoubleClickAction(source);
+            } else {
+                if (result == DoubleClickGesture::State::Result::FlushSingle) RunArtworkSingleClick();
+                state->timer.Start();
+            }
+        } catch (...) { state->gesture.Flush(); Wh_Log(L"Artwork click action failed"); }
+    });
 }
 static std::wstring ToLowerCopy(std::wstring value) {
     for (auto& c : value) c = towlower(c);
@@ -9091,7 +9218,14 @@ static Grid BuildLyricsOnlyPlayerGrid() {
     positionOffset.X((double)(g_settings.lyricsHorizontalOffset + g_settings.horizontalOffset));
     positionOffset.Y((double)(g_settings.lyricsVerticalOffset + g_settings.verticalOffset));
     wrapper.RenderTransform(positionOffset);
-    wrapper.IsHitTestVisible(false); // Pure lyrics; no play/pause or other interactive controls.
+    wrapper.IsHitTestVisible(LyricsInteractive());
+    if (LyricsInteractive()) {
+        wrapper.Background(MakeBrush({0, 0, 0, 0}));
+        BindDoubleTap(wrapper);
+        // Keep a lyric click from triggering the outer player's configured actions.
+        wrapper.PointerPressed([](auto const&, PointerRoutedEventArgs const& args) { args.Handled(true); });
+        wrapper.PointerReleased([](auto const&, PointerRoutedEventArgs const& args) { args.Handled(true); });
+    }
     Border background;
     background.Name(L"FluentMedia_Background");
     background.CornerRadius({g_settings.cornerRadiusTL, g_settings.cornerRadiusTR,
@@ -9385,11 +9519,7 @@ static Grid BuildPlayerGrid() {
                 playback.IsEnabled(false); // Enabled by the current media session's capabilities.
                 Automation::AutomationProperties::SetName(playback, L"Play");
                 ToolTipService::SetToolTip(playback, winrt::box_value(L"Play"));
-                playback.Click([](auto const&, RoutedEventArgs const&) {
-                    if (g_unloading || g_applyingSettings) return;
-                    try { SendMediaCommandAsync(2); }
-                    catch (...) { Wh_Log(L"Artwork playback command failed"); }
-                });
+                BindArtworkPlayback(playback);
                 Canvas::SetZIndex(playback, 20);
                 artContainer.Children().Append(playback);
             }
@@ -9412,11 +9542,12 @@ static Grid BuildPlayerGrid() {
                 pauseBorder.Child(pauseIcon);
                 artInnerGrid.Children().Append(pauseBorder);
             }
-            if (g_settings.disableAlbumArtClick && !g_settings.albumArtPlaybackButton) {
+            if (DoubleClickEnabled(L"album_art") && !g_settings.albumArtPlaybackButton) BindDoubleTap(artContainer);
+            if (g_settings.disableAlbumArtClick && !g_settings.albumArtPlaybackButton && !DoubleClickEnabled(L"album_art")) {
                 artContainer.IsHitTestVisible(false);
             } else {
                 artContainer.PointerPressed([](auto const& sender, winrt::Windows::UI::Xaml::Input::PointerRoutedEventArgs const& e) mutable {
-                    if (g_settings.albumArtPlaybackButton) { e.Handled(true); return; }
+                    if (g_settings.albumArtPlaybackButton || DoubleClickEnabled(L"album_art")) { e.Handled(true); return; }
                     if (g_settings.disableAlbumArtClick) return;
                     if (auto elem = sender.template try_as<UIElement>()) {
                         elem.CapturePointer(e.Pointer());
@@ -9427,7 +9558,7 @@ static Grid BuildPlayerGrid() {
                 auto artDblClickLastKind = std::make_shared<winrt::Windows::UI::Input::PointerUpdateKind>(
                     winrt::Windows::UI::Input::PointerUpdateKind::Other);
                 artContainer.PointerReleased([artDblClickLastTime, artDblClickLastKind](auto const& sender, winrt::Windows::UI::Xaml::Input::PointerRoutedEventArgs const& e) mutable {
-                    if (g_settings.albumArtPlaybackButton) { e.Handled(true); return; }
+                    if (g_settings.albumArtPlaybackButton || DoubleClickEnabled(L"album_art")) { e.Handled(true); return; }
                     if (g_settings.disableAlbumArtClick) return;
                     bool actuallyHovered = false;
                     if (auto elem = sender.template try_as<UIElement>()) {
@@ -10591,7 +10722,7 @@ static void UpdateAdaptiveLyricsOverlay(Grid const& rootGrid,
                 g_playerGrid.Width(place.width);
         }
         AnimateLyricsAdaptiveOpacity(place.visible);
-        g_playerGrid.IsHitTestVisible(place.visible && !g_settings.lyricsOnly);
+        g_playerGrid.IsHitTestVisible(place.visible && (!g_settings.lyricsOnly || LyricsInteractive()));
     } catch (...) { Wh_Log(L"Player overlay: layout update failed"); }
 }
 
@@ -10651,7 +10782,7 @@ static bool InjectPlayerGrid() {
             overlay.Name(kLyricsOverlayHostName);
             overlay.HorizontalAlignment(HorizontalAlignment::Stretch);
             overlay.VerticalAlignment(VerticalAlignment::Stretch);
-            overlay.IsHitTestVisible(!g_settings.lyricsOnly);
+            overlay.IsHitTestVisible(!g_settings.lyricsOnly || LyricsInteractive());
             Grid::SetColumn(overlay, 0);
             Grid::SetRow(overlay, 0);
             Grid::SetColumnSpan(overlay, std::max(1, (int)targetGrid.ColumnDefinitions().Size()));
@@ -11279,8 +11410,16 @@ static void RefreshPlayerContents() {
         if (auto fe = FindChildByName(g_playerGrid, L"FluentMedia_ArtPlaybackButton")) {
             if (auto button = fe.try_as<Button>()) {
                 try {
-                    button.IsEnabled(hasSession && canPlayPause);
-                    const auto label = isPlaying ? L"Pause" : L"Play";
+                    const bool doubleEnabled = DoubleClickEnabled(L"album_art");
+                    const bool otherAction = doubleEnabled && g_settings.doubleClickAction != L"play_pause";
+                    button.IsEnabled((hasSession && canPlayPause) ||
+                        (otherAction && (hasSession || g_settings.doubleClickAction == L"open_mini_player")));
+                    std::wstring label = isPlaying ? L"Pause" : L"Play";
+                    if (doubleEnabled) {
+                        label += L"; double-click: ";
+                        label += g_settings.doubleClickAction == L"open_app" ? L"open music app" :
+                            g_settings.doubleClickAction == L"open_mini_player" ? L"open expanded player" : L"play / pause";
+                    }
                     Automation::AutomationProperties::SetName(button, label);
                     ToolTipService::SetToolTip(button, winrt::box_value(label));
                     if (auto icon = button.Content().try_as<TextBlock>())
@@ -11796,6 +11935,9 @@ static void WINAPI TrayUI_StartTaskbar_Hook(void* pThis) {
         Wh_Log(L"TrayUI_StartTaskbar_Hook: Taskbar window not found");
         return;
     }
+    // Discard pending cover clicks and old UI delegates on an actual taskbar restart.
+    for (auto& cleanup : g_uiCleanup) { try { cleanup(); } catch (...) {} }
+    g_uiCleanup.clear();
     g_cachedTaskbarXamlRoot = nullptr;
     g_cachedTaskbarRootWindow = nullptr;
     g_playerGrid      = nullptr;

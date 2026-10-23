@@ -1,6 +1,8 @@
-# Taskbar Fluent Media + Lyrics 3.0.5
+# Taskbar Fluent Media + Lyrics 3.0.6
 
 Restores album art, track details and media controls alongside synchronized Roman-script lyrics in the supplied Windhawk mod. The original file explicitly disabled the full player, ignored its visibility switches and compiled out its UI.
+
+**Configurable double-clicks in 3.0.6:** under **Main Settings → Media player**, choose **Double-click target** (Off, Lyrics, Album artwork, or both), then **Double-click action** (Open music app, Open expanded player, or Play / pause). Off is the default and preserves normal clicks. Lyrics work in full-player and lyrics-only modes. For the native cover playback button, a single click waits for Windows' double-click interval when artwork double-clicks are enabled; two close clicks run only the chosen double action. Fast clicks far apart remain separate singles. Timers run only while a cover click is pending and are canceled on settings changes, UI removal and taskbar restart. If the cover playback button is off, selecting artwork overrides its legacy click mappings with the selected double-click action.
 
 **Artwork playback button in 3.0.5:** a centered play/pause button is enabled on the cover by default, using no extra taskbar width. It shows Pause while playing and Play while paused, supports keyboard/touch activation, and disables when the session cannot toggle playback. Toggle **Main Settings → Album Art → Play/pause button on cover** to restore custom artwork clicks and the legacy paused indicator. Overlay icon size/background opacity use the existing artwork display settings. The separate control row remains configurable.
 
@@ -8,7 +10,7 @@ Restores album art, track details and media controls alongside synchronized Roma
 
 **Settings-save crash fix in 3.0.3:** the previous callback requested a full DLL unload/reload on every settings save. XAML callbacks can outlive removal of their UI tree, making that policy unsafe. Settings now apply in place: pause admission of new jobs, stop producers, drain workers (including captured-resource destruction), read settings and rebuild the UI on the taskbar thread, then resume. The settings callback explicitly requests **no DLL reload**. The live XAML root is reused for edits on the same taskbar.
 
-If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.5. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
+If upgrading from a crashing version, disable it, compile this source while disabled, restart Explorer once to discard the old DLL/callbacks, then enable 3.0.6. Restart TranslucentTB afterward if necessary. Ordinary settings changes in 3.0.3 do not request an Explorer restart or module reload. Runtime confirmation on Windows is still required; the cloud tests below do not run Explorer.
 
 ![Default component positions](docs/layout.svg)
 
@@ -71,10 +73,11 @@ The DLLs in `build/` are for compiler validation. Install the `.wh.cpp` through 
 | --- | --- |
 | Pure production C++ placement, LRC parsing and romanization | 26 scenarios passed |
 | Randomized placement bounds and collision invariants | 10,000 passed |
-| Windhawk settings defaults, bindings, dropdowns and slider bounds | 159 bindings / 44 sliders checked |
+| Windhawk settings defaults, bindings, dropdowns and slider bounds | 161 bindings / 44 sliders checked |
 | Live settings lifecycle, failure recovery and worker drain | 1,000 callback saves / 100 concurrent-worker cycles passed |
 | Old forced-reload policy mutation | Rejected by the regression test |
 | Address / undefined-behavior sanitizers on C++ regression harness | Passed |
+| Production cover click classification | Single/double/triple, timing/distance bounds and 1,000 rapid clicks passed |
 | Compact preset, saved-size caps, custom opt-out and free-space fit | Passed |
 | Full x64 Windows compile and link | Passed |
 | Full ARM64 Windows compile and link | Passed |
