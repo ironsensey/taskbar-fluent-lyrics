@@ -83,5 +83,6 @@ int main() {
     TestSettingsLifecycle();
     TestCompactLayout();
     TestDoubleClick();
+    TestMonitorCycle();
     std::cout << "PASS: 26 scenarios and 10,000 randomized placement checks\n";
 }

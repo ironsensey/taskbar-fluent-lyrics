@@ -1,6 +1,6 @@
 Source: taskbar-fluent-lyrics.wh.cpp
-Version: 3.0.6
-SHA-256: f276667e9a2f2c3cb343668921d920d75afe50b87a3f732cce813e158577617b
+Version: 3.0.7
+SHA-256: 012dc10fcdb71db0910ce04c8064bb119f40e0747ae93e5f32ca66020a14ead8
 
 PASS: official Windhawk architecture metadata parsing
 PASS: single-file mod structure
@@ -14,6 +14,7 @@ PASS: 161 settings bindings and 44 bounded slider declarations
 PASS: 1,000 settings callbacks requesting no DLL reload
 PASS: 100 active-worker drain cycles including captured-resource destruction
 PASS: settings lifecycle failure recovery
+PASS: monitor cycle wraparound and all taskbar availability sets up to 10 displays
 PASS: production click classifier single/double/triple clicks, timing/distance boundaries, 1,000 rapid clicks
 PASS: compact layout size constraints, custom opt-out and taskbar free-space fit (316-DIP default budget)
 PASS: mutation test rejects the former forced-DLL-reload policy

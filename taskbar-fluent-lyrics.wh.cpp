@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.6
+// @version         3.0.7
 // @author          Salyts
 // @github          https://github.com/Salyts
 // @include         explorer.exe
@@ -69,6 +69,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       $options:
       - open_app: Open music app
       - open_mini_player: Open expanded player
+      - next_monitor: Move to next monitor
       - play_pause: Play / pause
     - previewLayout: false
       $name: Layout preview (turn off after arranging)
@@ -1586,6 +1587,26 @@ struct State {
 }
 // END PORTABLE DOUBLE CLICK
 
+// BEGIN PORTABLE MONITOR CYCLE
+namespace MonitorCycle {
+// Skip displays without an Explorer taskbar and wrap after the last display.
+static int Next(const std::vector<bool>& available, int current) {
+    const int count = (int)available.size();
+    if (!count) return -1;
+    if (current < 0 || current >= count) {
+        for (int i = 0; i < count; ++i) if (available[i]) return i;
+        return -1;
+    }
+    for (int step = 1; step < count; ++step) {
+        const int index = (current + step) % count;
+        if (available[index]) return index;
+    }
+    return available[current] ? current : -1;
+}
+}
+// END PORTABLE MONITOR CYCLE
+
+
 
 
 using namespace winrt::Windows::UI::Xaml;
@@ -1948,7 +1969,7 @@ static void LoadSettings() {
     if (g_settings.doubleClickTarget != L"lyrics" && g_settings.doubleClickTarget != L"album_art" &&
         g_settings.doubleClickTarget != L"both") g_settings.doubleClickTarget = L"none";
     if (g_settings.doubleClickAction != L"open_app" && g_settings.doubleClickAction != L"open_mini_player" &&
-        g_settings.doubleClickAction != L"play_pause") g_settings.doubleClickAction = L"open_app";
+        g_settings.doubleClickAction != L"play_pause" && g_settings.doubleClickAction != L"next_monitor") g_settings.doubleClickAction = L"open_app";
     g_settings.previewLayout = Wh_GetIntSetting(L"MainSettings.PlayerSetting.previewLayout") != 0;
     g_settings.horizontalOffset = Int(L"MainSettings.PlayerSetting.horizontalOffset", -1000, 1000, 0);
     g_settings.verticalOffset = Int(L"MainSettings.PlayerSetting.verticalOffset", -80, 80, 0);
@@ -3108,7 +3129,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     json.clear();
     if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.6 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.7 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -4849,9 +4870,13 @@ static bool DoubleClickEnabled(const wchar_t* target) {
 static bool LyricsInteractive() {
     return DoubleClickEnabled(L"lyrics");
 }
+static void MovePlayerToNextMonitor();
 static void RunDoubleClickAction(FrameworkElement const& source) {
     if (g_unloading || g_applyingSettings) return;
-    try { ExecuteMediaAction(g_settings.doubleClickAction, source); }
+    try {
+        if (g_settings.doubleClickAction == L"next_monitor") MovePlayerToNextMonitor();
+        else ExecuteMediaAction(g_settings.doubleClickAction, source);
+    }
     catch (...) { Wh_Log(L"Double-click action failed"); }
 }
 static void BindDoubleTap(FrameworkElement const& target) {
@@ -11413,12 +11438,13 @@ static void RefreshPlayerContents() {
                     const bool doubleEnabled = DoubleClickEnabled(L"album_art");
                     const bool otherAction = doubleEnabled && g_settings.doubleClickAction != L"play_pause";
                     button.IsEnabled((hasSession && canPlayPause) ||
-                        (otherAction && (hasSession || g_settings.doubleClickAction == L"open_mini_player")));
+                        (otherAction && (hasSession || (g_settings.doubleClickAction == L"open_mini_player" || g_settings.doubleClickAction == L"next_monitor"))));
                     std::wstring label = isPlaying ? L"Pause" : L"Play";
                     if (doubleEnabled) {
                         label += L"; double-click: ";
                         label += g_settings.doubleClickAction == L"open_app" ? L"open music app" :
-                            g_settings.doubleClickAction == L"open_mini_player" ? L"open expanded player" : L"play / pause";
+                            g_settings.doubleClickAction == L"open_mini_player" ? L"open expanded player" :
+                            g_settings.doubleClickAction == L"next_monitor" ? L"move to next monitor" : L"play / pause";
                     }
                     Automation::AutomationProperties::SetName(button, label);
                     ToolTipService::SetToolTip(button, winrt::box_value(label));
@@ -12052,6 +12078,8 @@ void Wh_ModAfterInit() {
     }
 }
 void Wh_ModUninit() {
+    // A monitor gesture can also be rebuilding the UI; finish it before teardown.
+    std::lock_guard<std::mutex> change(g_settingsChangeMutex);
     {
         std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
         g_unloading = true;
@@ -12096,14 +12124,16 @@ void Wh_ModUninit() {
     }
     CleanupAudioDeviceEnumerator();
 }
-static bool ReconfigureSettingsOnUi() {
+static bool ReconfigureSettingsOnUi(int monitorOverride) {
     HWND oldWindow = g_taskbarWnd;
     if (!oldWindow || !IsWindow(oldWindow)) oldWindow = FindCurrentProcessTaskbarWnd();
     if (!oldWindow) {
         Wh_Log(L"Settings update deferred: no live taskbar UI window");
         return false;
     }
-    struct Context { bool loaded = false; } context;
+    // A display may have disconnected while producers were draining.
+    if (monitorOverride > 0 && !FindTaskbarWndForMonitor(GetMonitorByNumber(monitorOverride))) return false;
+    struct Context { bool loaded = false; int monitorOverride = 0; } context{false, monitorOverride};
     const bool removed = RunFromWindowThread(oldWindow, [](void* param) {
         auto& state = *static_cast<Context*>(param);
         RemovePlayerGrid();
@@ -12136,7 +12166,8 @@ static bool ReconfigureSettingsOnUi() {
         std::vector<MediaButtonConfig> previousButtons;
         { std::lock_guard<std::mutex> lock(g_mediaButtonsMutex); previousButtons = g_mediaButtons; }
         try {
-            LoadSettings();
+            if (state.monitorOverride > 0) g_settings.monitor = state.monitorOverride;
+            else LoadSettings();
             state.loaded = true;
         } catch (...) {
             g_settings = std::move(previous);
@@ -12180,17 +12211,22 @@ static bool ReconfigureSettingsOnUi() {
     }, nullptr);
     return context.loaded && rebuilt;
 }
-static bool ApplySettingsLive() {
-    std::lock_guard<std::mutex> change(g_settingsChangeMutex);
+static bool ApplySettingsLive(int monitorOverride = 0) {
+    // A gesture runs on Explorer's UI thread: never block it behind a settings
+    // callback which might be waiting to dispatch onto that same thread.
+    std::unique_lock<std::mutex> change(g_settingsChangeMutex, std::defer_lock);
+    if (monitorOverride > 0) { if (!change.try_lock()) return false; }
+    else change.lock();
     if (g_unloading) return false;
     struct Actions {
+        int monitorOverride;
         void Pause() {
             std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
             g_applyingSettings = true;
         }
         void StopProducers() { StopTimerThread(); StopMediaThread(); }
         void DrainWorkers() { WaitForTrackedWorkers(); }
-        bool ReconfigureOnUi() { return ReconfigureSettingsOnUi(); }
+        bool ReconfigureOnUi() { return ReconfigureSettingsOnUi(monitorOverride); }
         void Resume() {
             {
                 std::lock_guard<std::mutex> admission(g_workerAdmissionMutex);
@@ -12203,8 +12239,30 @@ static bool ApplySettingsLive() {
             }
         }
         void ReportFailure() noexcept { Wh_Log(L"In-place settings update failed; the module remains loaded"); }
-    } actions;
+    } actions{monitorOverride};
     return LiveSettings::Apply(actions);
+}
+static void MovePlayerToNextMonitor() {
+    if (g_unloading || g_applyingSettings || !g_taskbarWnd) return;
+    std::vector<HMONITOR> monitors;
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR monitor, HDC, LPRECT, LPARAM data) -> BOOL {
+        try { reinterpret_cast<std::vector<HMONITOR>*>(data)->push_back(monitor); }
+        catch (...) { return FALSE; }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&monitors));
+    const HMONITOR currentMonitor = MonitorFromWindow(g_taskbarWnd, MONITOR_DEFAULTTONEAREST);
+    int current = -1;
+    std::vector<bool> available;
+    for (size_t i = 0; i < monitors.size(); ++i) {
+        if (monitors[i] == currentMonitor) current = (int)i;
+        available.push_back(FindTaskbarWndForMonitor(monitors[i]) != nullptr);
+    }
+    const int next = MonitorCycle::Next(available, current);
+    if (next < 0 || next == current) {
+        Wh_Log(L"Monitor switch: no other display with an Explorer taskbar");
+        return;
+    }
+    if (!ApplySettingsLive(next + 1)) Wh_Log(L"Monitor switch was not applied");
 }
 BOOL Wh_ModSettingsChanged(BOOL* reload) {
     // XAML objects/delegates may survive a tree removal. Keep their code mapped.

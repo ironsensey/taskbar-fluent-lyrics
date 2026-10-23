@@ -92,7 +92,8 @@ lyrics = source[source.index('static std::vector<LyricCue> ParseLrcLines('):sour
 # The chunk also includes normalization helpers, all independent of Windows APIs.
 compact = between('// BEGIN PORTABLE COMPACT LAYOUT\n', '// END PORTABLE COMPACT LAYOUT')
 gesture = between('// BEGIN PORTABLE DOUBLE CLICK\n', '// END PORTABLE DOUBLE CLICK')
-program = includes + geometry + compact + gesture + '\nstruct LyricCue { int64_t timeMs; std::wstring text; };\n' + lyrics
+monitor_cycle = between('// BEGIN PORTABLE MONITOR CYCLE\n', '// END PORTABLE MONITOR CYCLE')
+program = includes + geometry + compact + gesture + monitor_cycle + '\nstruct LyricCue { int64_t timeMs; std::wstring text; };\n' + lyrics
 # Exercise the actual dispatch guard without requiring Explorer or Windows SDK runtime.
 # The stand-in supplies only the HRESULT/message interface consumed by this pure C++ guard.
 program += r"""
@@ -130,6 +131,7 @@ program += source[source.index('BOOL Wh_ModSettingsChanged('):]
 program += (ROOT / 'tests/settings_lifecycle.cpp').read_text()
 program += (ROOT / 'tests/compact_layout.cpp').read_text()
 program += (ROOT / 'tests/double_click.cpp').read_text()
+program += (ROOT / 'tests/monitor_cycle.cpp').read_text()
 program += (ROOT / 'tests/portable_tests.cpp').read_text()
 with tempfile.TemporaryDirectory(prefix='taskbar-player-tests-') as temp:
     cpp = Path(temp, 'tests.cpp')
