@@ -1,18 +1,18 @@
 // ==WindhawkMod==
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
-// @description     Taskbar media controls, album art, track details and synchronized Roman-script lyrics with configurable placement.
-// @version         3.0.7
-// @author          Salyts
-// @github          https://github.com/Salyts
+// @description     Windows 11 taskbar media controls, lyrics, visualizer, automatically animated artwork and optional authorized video.
+// @version         3.1.8.2
+// @author          ironsensey
+// @github          https://github.com/ironsensey
 // @include         explorer.exe
-// @architecture    x86-64
+// @architecture    amd64
 // @compilerOptions -lole32 -loleaut32 -lruntimeobject -luuid -luser32 -lwindowsapp -lshell32 -lgdi32 -lshlwapi -lwindowscodecs -ldwmapi -lshcore -lksuser -lwinhttp
 // ==/WindhawkMod==
 
 // ==WindhawkModReadme==
 /*
-# Taskbar Fluent Media + Lyrics 3.0
+# Taskbar Fluent Media + Lyrics 3.1.8.2
 
 Album art, track details, playback controls and synced lyrics share one player.
 Default order: **cover | title / artist | previous, play / pause, next | lyrics**.
@@ -31,17 +31,60 @@ cannot change the settings editor shipped with that version.
 Existing settings survive source replacement: enable cover, title, artist and media
 buttons in Main Settings if an older version saved those switches as off.
 
-Lyrics use HTTPS requests to LRCLIB (title and artist are sent). English is unchanged;
-Hindi always uses Roman letters (Hinglish), and Gurmukhi Punjabi is romanized locally.
+Lyrics use HTTPS requests to LRCLIB (title and artist are sent). Spotify multi-artist/featured credits get safe fallback matching. English is unchanged;
+Hindi and Gurmukhi can use Roman transliteration (legacy default) or their original scripts.
+Optional plain-lyrics fallback is approximate and never claims accurate karaoke timing.
+The taskbar label is omitted for a cleaner display; the unsynced source is still logged.
+To avoid unrelated English lyric records for strongly Hindi-looking song titles,
+the optional language guard only accepts original-script or strongly Romanized text.
+When no reliable lyric record is available the taskbar leaves lyrics blank.
+Keep exactly one copy of this taskbar player enabled in Windhawk: running the
+original player and one or more forks together can overlap the artwork/text.
+The safe embedded lyric-column mode suppresses potentially overlapping horizontal
+translation; disable it to opt back into unrestricted manual X offsets.
+Synchronized lyrics now hold their line until the next timed cue, or until a
+configurable long-gap limit, instead of disappearing at the visualizer's 5.2-second
+docking threshold. Enhanced-LRC word timestamps drive actual word highlighting.
+For ordinary line-timed LRC, approximate within-line word highlighting is
+optional and cannot claim exact syllable/vocal timing. Plain unsynchronized
+lyrics remain unhighlighted because no timing information is available.
+Song-change transitions animate art, text, and album-derived visualizer colors smoothly.
+An optional native muted MP4 tile appears beside album art when a playable local or authorized HTTPS clip exists.
+The Canvas display mode supports VIDEO with automatic artwork fallback, or BOTH side-by-side.
+Automatic motion artwork is generated from Windows media-session album art, not fetched Spotify Canvas or a YouTube music video.
+When a video is missing, loading, unsupported, or fails decoding, the existing artwork is shown instead.
+Spotify Canvas is NOT obtained automatically; the Spotify Web API does not provide Canvas video URLs.
+Local per-track videos use Artist - Title.mp4 in the chosen folder. Optional remote video sources use authorized HTTPS MP4 URLs, either fixed or keyed by artist and title; a network connection is required. Video decoding uses Windows media components. YouTube embeds cannot be used as a cropped taskbar video, and this mod does not scrape video URLs or bypass streaming-service APIs.
 This changes the script only, without translation. Missing lyrics
 stay blank; playback controls and cover continue working. Playback capabilities,
 artwork and timeline accuracy depend on the selected Windows media session.
 
 Use **Lyrics only** for the compact original presentation, or disable **Show lyrics**
 to use just the media player. Visualizer and text scrolling are optional power costs
-and are off by default. The mod requires Windows 11's XAML taskbar and Windhawk.
+and are off by default. In the no-lyrics layout, the visualizer docks directly
+right of the album cover with collision-safe spacing independent of its neighbor
+gap setting. Audio capture uses more precise bass bands, hop-based FFT updates,
+whole-range grouping even at one visible bar, real audio-driven shapes, and
+configurable time-based smoothing. Rounded capsule bars, configurable resting
+height, and 30/60 FPS limits are available in Visualizer settings. Version 3.1.2 docks the
+visualizer during instrumental gaps and animates the *full distance* toward its far
+position ahead of the next cue. Eleven easing presets control acceleration and
+braking. Separate near-to-far and far-to-near presets are available, with a
+simulated no-music preview that cycles both directions. Slide transitions do not
+fade the bars; the optional Fade style remains available. Mirrored layouts where
+artwork blocks the straight path use a short artwork-safe slide instead.
+For instrumental sections, cue gaps longer than the hold limit are treated as
+silent lyric gaps; unsynchronized/incorrect cue timestamps cannot predict vocals.
+The mod requires Windows 11's XAML taskbar and Windhawk.
 Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Media-Player
+The upstream media player also credits GR0UD for its audio visualizer engine.
+New streaming integration and customizations by ironsensey.
 */
+// v3.1.5.4: Strip enhanced-LRC <mm:ss.mmm> word timestamps from displayed
+// lyrics, including plain fallback. Lines that start with an enhanced timestamp
+// can be read without an outer LRC line tag. Line sync remains line-based.
+// LRCLIB does not provide lyrics for every recording; turn off the native-script
+// only filter for Romanized Hindi/Punjabi, and enable unsynced fallback as needed.
 // ==/WindhawkModReadme==
 
 // ==WindhawkModSettings==
@@ -55,7 +98,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       - lyrics_only: Lyrics only
     - compactLayout: true
       $name: Compact horizontal layout
-      $description: Fit content with a cover up to 28 DIPs, track text up to 80, lyrics up to 120 and buttons up to 24. Reduces horizontal gaps and overrides whole-player width limits. Turn off to use larger custom sizes.
+      $description: Fit content with a cover up to 28 DIPs, track text up to 96, lyrics up to 120 and buttons up to 24. Reduces horizontal gaps and overrides whole-player width limits. Turn off to use larger custom sizes.
     - doubleClickTarget: "none"
       $name: Double-click target
       $description: Choose where the double-click action works. Off preserves existing click behavior. With the cover playback button enabled, a single cover click waits for the Windows double-click interval to prevent conflicting actions.
@@ -199,7 +242,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       $name: Show album art
     - albumArtPlaybackButton: true
       $name: Play/pause button on cover
-      $description: Show a centered play/pause button over the artwork without adding width. Clicking the cover toggles playback. Turn off to use custom cover click actions and the legacy paused indicator.
+      $description: The playback button appears ONLY while hovering over the cover. Clicking the cover still toggles playback. Turn off to use custom cover click actions and the legacy paused indicator.
     - albumArtSide: "auto"
       $name: Cover side
       $options:
@@ -383,6 +426,96 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       $options:ru-RU:
       - "left": Слева
       - "right": Справа
+    - vizCompactEnabled: true
+      $name: Dock visualizer beside cover when no lyric line is showing
+      $description: Includes instrumental intros, long gaps between lines, and songs with no synchronized lyrics. Returns to the original far position when lyrics resume.
+    - vizCompactGap: 0
+      #! $min: 0
+      #! $max: 80
+      #! $format: slider
+      $name: Near position - extra gap after album art (DIPs)
+      $description: Extra gap in the compact dock. An independent 3-DIP safety clearance always prevents overlap even at 0. The normal neighbor-gap setting is unchanged.
+    - vizCompactHorizontalOffset: 0
+      #! $min: -100
+      #! $max: 100
+      #! $format: slider
+      $name: Near position - horizontal adjustment (DIPs)
+      $description: Positive adds space before bars, negative adds space after bars. Does not draw over album art.
+    - vizCompactVerticalOffset: 0
+      #! $min: -20
+      #! $max: 20
+      #! $format: slider
+      $name: Near position - vertical adjustment (DIPs)
+    - vizTransitionStyle: "slide"
+      $name: Visualizer dock transition style
+      $description: Slide visibly travels from the near dock to its original far position (and back), with selectable acceleration presets. Fade is the older appearance-only effect; Instant disables motion. A mirrored arrangement that would cross the cover uses a short slide to keep artwork visible.
+      $options:
+      - "slide": Smooth slide (new default)
+      - "fade": Fade in at destination (previous behavior)
+      - "instant": No animation
+    - vizMoveAnimationMs: 350
+      #! $min: 0
+      #! $max: 1600
+      #! $format: slider
+      $name: Visualizer position transition duration (ms)
+      $description: Total travel time for the near/far slide. 350 ms is quick and smooth; 500-650 ms feels more cinematic. 0 disables animation. When using lyrics, set the return-before-lyrics lead to at least the animation duration for the full effect.
+    - vizNearToFarEase: "cinematic"
+      $name: Near to far - movement preset
+      $description: Select how the bars accelerate and slow down while traveling from the album cover to their normal far position. These presets move the visualizer across the full available distance; they do not fade it.
+      $options:
+      - cinematic: Cinematic (slow start, fast middle, slow stop)
+      - silky: Silky (very soft acceleration and braking)
+      - gentle: Gentle (light acceleration and braking)
+      - dramatic: Dramatic (long slow start, quick middle, soft stop)
+      - powerful: Powerful (strong acceleration and deceleration)
+      - arc: Arc glide (smooth rounded movement)
+      - quick: Quick launch (fast start, gradual stop)
+      - feather: Feather stop (fast start, very gentle finish)
+      - glide: Smooth coast (moderate start, soft finish)
+      - buildup: Slow buildup (gentle start, faster finish)
+      - linear: Linear (constant speed)
+    - vizFarToNearEase: "match"
+      $name: Far to near - movement preset
+      $description: Control the return trip independently, or choose Match near to far to reuse its animation curve.
+      $options:
+      - match: Match near-to-far preset
+      - cinematic: Cinematic (slow start, fast middle, slow stop)
+      - silky: Silky (very soft acceleration and braking)
+      - gentle: Gentle (light acceleration and braking)
+      - dramatic: Dramatic (long slow start, quick middle, soft stop)
+      - powerful: Powerful (strong acceleration and deceleration)
+      - arc: Arc glide (smooth rounded movement)
+      - quick: Quick launch (fast start, gradual stop)
+      - feather: Feather stop (fast start, very gentle finish)
+      - glide: Smooth coast (moderate start, soft finish)
+      - buildup: Slow buildup (gentle start, faster finish)
+      - linear: Linear (constant speed)
+    - vizBeforeLyricsMs: 500
+      #! $min: 0
+      #! $max: 1500
+      #! $format: slider
+      $name: Return to far position BEFORE next lyric (ms)
+      $description: 500 ms returns the visualizer half a second before the next synchronized lyric cue appears. Depends on accurate timestamps from the music player and lyric provider.
+    - vizInstrumentalAfterMs: 5200
+      #! $min: 500
+      #! $max: 30000
+      #! $format: slider
+      $name: Clear held lyric after long instrumental gap (ms)
+      $description: During cue gaps longer than this value, remove the old lyric and dock the visualizer when the last line has been held for this long. 5200 works well for most songs.
+    - vizPreviewMode: "off"
+      $name: Visualizer test preview (works without music)
+      $description: Temporarily show simulated responsive bars and the player even without playback. Choose a dock to test offsets, or cycle between near/far. Set Off after testing to save power. Does not override actual audio when music is playing.
+      $options:
+      - "off": Off (real music only)
+      - "near": Preview beside album cover
+      - "far": Preview original far position
+      - "cycle": Automatically alternate near / far every 4 seconds
+    - vizPreviewStrength: 70
+      #! $min: 10
+      #! $max: 100
+      #! $format: slider
+      $name: Preview simulated beat strength (%)
+      $description: Controls only the test pattern; real music sensitivity is unchanged.
     - vizShape: "stereo"
       $name: Bar shape
       $name:ru-RU: Форма столбиков
@@ -409,6 +542,23 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       - "pop": Поп
       - "jazz": Джаз
       - "electronic": Электроника
+    - vizHorizontalOffset: 0
+      #! $min: -100
+      #! $max: 100
+      #! $format: slider
+      $name: Far position - horizontal adjustment (DIPs)
+      $description: Move the bars within reserved space; the player allocates extra room rather than overlapping its neighbors.
+    - vizVerticalOffset: 0
+      #! $min: -20
+      #! $max: 20
+      #! $format: slider
+      $name: Far position - vertical adjustment (DIPs)
+    - vizSectionGap: 6
+      #! $min: 0
+      #! $max: 40
+      #! $format: slider
+      $name: Far position - gap between visualizer and neighbors (DIPs)
+      $description: Optional spacing in the normal layout. When lyrics are missing, a separate fixed 3-DIP safety clearance keeps the visualizer next to, never on top of, the album art even at 0.
     - vizAnchor: "middle"
       $name: Vertical anchor
       $name:ru-RU: Вертикальная привязка
@@ -426,15 +576,40 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
       $description: Two values "count gap" — number of bars (1-20) and spacing between them in px.
       $description:ru-RU: Два значения "количество промежуток" — количество столбиков (1-20) и расстояние между ними в пикселях.
     - vizBarSize: "5 3"
-      $name: Bar size (width height)
+      $name: Bar size (width legacy resting height)
       $name:ru-RU: Размер столбика (ширина высота)
-      $description: Two values "width height" — bar width in px (0-40) and idle (resting) height in px (0-15). Width 0 hides the bars.
-      $description:ru-RU: Два значения "ширина высота" — ширина столбика в пикселях (0-40) и высота покоя в пикселях (0-15). Ширина 0 скрывает столбики.
+      $description: Preserved legacy setting. First value = width (0-40); second = original idle height (0-15). The separate Resting bar height slider below overrides only the idle height when set to 0 or greater. Leave that slider on -1 for identical legacy behavior.
+      $description:ru-RU: Старая настройка ширины и высоты покоя; отдельный ползунок высоты покоя переопределяет её, когда значение не -1.
+    - vizRestingHeight: -1
+      #! $min: -1
+      #! $max: 60
+      #! $format: slider
+      $name: Resting bar height (DIPs)
+      $description: -1 = preserve your old Bar size resting-height behavior; 0 = disappear completely in silence; 1-60 = exact resting height of each stick. Capped automatically to available visualizer height. Does not affect the maximum loud height.
     - vizPadding: "0 0"
       $name: Padding (left right)
       $name:ru-RU: Отступы (слева справа)
       $description: Two values "left right" in px.
       $description:ru-RU: Два значения "слева справа" в пикселях.
+    - vizRoundness: 100
+      #! $min: 0
+      #! $max: 100
+      #! $format: slider
+      $name: Visualizer bar-end roundness (%)
+      $description: 100 = full pill-shaped bars with rounded top and bottom, including tiny idle bars; 0 = square corners. Existing bar width, gap and color stay unchanged.
+    - vizResponseMode: "precise"
+      $name: Music sync response
+      $description: Precise = tighter peaks and faster beat response (recommended); Balanced = softer movement; Smooth = gentle movement. No artificial beat motion is added to live audio.
+      $options:
+      - "precise": Precise - quick attacks, natural short decay
+      - "balanced": Balanced - steady, moderately smooth
+      - "smooth": Smooth - relaxed, longer tails
+    - vizFrameRate: "60"
+      $name: Visualizer refresh limit
+      $description: 60 FPS is smoothest (recommended); 30 FPS reduces UI updates and is useful on battery or slower computers. Audio capture still analyzes the music separately.
+      $options:
+      - "60": Smooth 60 FPS
+      - "30": Economy 30 FPS
     - vizSensitivity: 150
       #! $min: 0
       #! $max: 300
@@ -457,6 +632,45 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
   - onlineLookup: true
     $name: Fetch synced lyrics online (LRCLIB)
     $description: Sends track title and artist to LRCLIB via HTTPS. Disable to prevent network lyrics lookups.
+  - hindiLyricsScript: "roman"
+    $name: Hindi / Punjabi lyrics text
+    $description: Roman keeps the previous Hinglish / Roman Punjabi behavior; Native displays the original script exactly as provided. This does not translate English lyrics to Hindi.
+    $options:
+    - roman: Romanized (previous behavior)
+    - native: Original Devanagari / Gurmukhi script
+  - lyricsAvoidOverlap: true
+    $name: Keep full-player lyrics in their own column (prevent overlap)
+    $description: Ignore the manual horizontal lyric offset in combined player mode to keep text and lyrics in separate columns. Disable only if you intentionally need an overlapping/free-position layout. The offset is still available in lyrics-only mode.
+  - rejectEnglishForHindiTitles: true
+    $name: Reject English-only lyrics on recognizable Hindi song titles
+    $description: For clearly Hindi-looking titles, reject LRCLIB records that contain neither Hindi script nor recognizable Romanized Hindi. This is a cautious heuristic, not a language detector; turn OFF if a valid bilingual song loses its lyrics. English songs are unaffected.
+  - lyricsRequireNativeScript: false
+    $name: Strict Hindi/Punjabi source - only original-script lyrics
+    $description: Optional filter for Hindi/Punjabi tracks. Accept only lyric records containing Devanagari or Gurmukhi. This prevents unrelated English text but also hides valid Romanized Hindi/Punjabi lyrics. Turn OFF for English songs and Romanized-only records. Independent of display script.
+  - showPlainLyrics: true
+    $name: Show unsynchronized lyrics if timed lyrics are missing
+    $description: Show LRCLIB plain text without an intrusive label. Lines advance at a fixed interval; this is NOT synchronized to vocals or eligible for accurate word-follow highlighting.
+  - lyricsHoldMs: 16000
+    #! $min: 3000
+    #! $max: 60000
+    #! $format: slider
+    $name: Maximum lyric line hold during long gaps (ms)
+    $description: A lyric remains visible until its next cue, up to this limit. A deliberately empty LRC cue immediately clears it. Separate from visualizer docking; set higher if long vocal phrases disappear too soon.
+  - lyricsWordFollow: true
+    $name: Follow individual words when timestamps are available
+    $description: Highlight words using enhanced-LRC timing tags supplied by the lyrics source. Word-accurate follow is not available for regular line-only LRC.
+  - lyricsEstimateWordTiming: true
+    $name: Approximate word-follow for regular line-timed lyrics
+    $description: Spread words across the time until the next line when enhanced-LRC word timestamps are unavailable. This looks smoother but is an ESTIMATE, not word-accurate vocal sync. No word-follow for unsynced plain lyrics.
+  - lyricsNoTimelineFallback: true
+    $name: Display approximate lyrics when Spotify provides no playback timeline
+    $description: If Windows gives a song title but no usable playback position, advance an estimated clock while playing rather than leaving all lyrics invisible. Sync will be approximate and seeking may be inaccurate. Disable for strict timestamp-only behavior.
+  - plainLyricsLineMs: 5000
+    #! $min: 2000
+    #! $max: 12000
+    #! $format: slider
+    $name: Unsynced line display interval (ms)
+    $description: Only affects clearly marked unsynced fallback lyrics; real synchronized LRC timing is unchanged.
   - lyricsWidth: 230
     #! $min: 120
     #! $max: 700
@@ -524,6 +738,205 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
     $description: Smoothly animate width changes as more apps open or close.
   $name: Lyrics Settings
 
+- CanvasVideoSettings:
+  - enabled: false
+    $name: Enable separate looping video tile
+    $description: Adds a muted video beside album artwork. Uses local MP4 or direct authorized HTTPS MP4 streaming. Spotify does not offer official Canvas video URLs via its public API. YouTube's official player cannot be cropped into a tiny taskbar tile.
+  - displayMode: "both"
+    $name: Canvas display mode
+    $description: Video-only shows a playable clip or falls back to album art. Both shows art and video side by side whenever the video opens. Failed or unavailable video never leaves an empty tile.
+    $options:
+    - both: Both album artwork and video side by side (artwork fallback)
+    - video: Video instead of artwork (automatically fall back to artwork)
+  - sourceMode: "auto_art"
+    $name: Video source mode
+    $description: Online modes require authorized HTTPS MP4 links. Spotify does not supply Canvas URLs through its public API and YouTube embeds cannot be used as miniature cropped players. No automatic extraction occurs.
+    $options:
+    - auto_art: Automatic animated artwork from playing song (no link needed)
+    - track: Local video named Artist - Title.mp4
+    - fixed: Fixed local MP4 file (testing)
+    - online_track: Online MP4 matched to track from the URL map
+    - online_canvas: Direct authorized Canvas-like MP4 URL (manual)
+    - online_official: Direct licensed/official MP4 URL (manual)
+  - onlineCanvasUrl: ""
+    $name: Spotify-style loop video HTTPS MP4 URL
+    $description: Paste an authorized direct HTTPS MP4 link (not a Spotify song link, Spotify Canvas page, or YouTube watch URL). The Spotify Web API does not expose the original Canvas video.
+  - onlineOfficialUrl: ""
+    $name: Official music video HTTPS MP4 URL
+    $description: Paste a direct authorized MP4 stream URL from the artist, label or distributor. YouTube watch/shorts/iframe URLs will not play in this tile.
+  - onlineTrackUrls: ""
+    $name: Artist-title to online MP4 URLs
+    $description: "Format - Artist | Title | https://host/clip.mp4 ; Other Artist | Other Title | https://host/another.mp4. Matching is case-insensitive. Up to 32 entries. Use only links you are permitted to play. No local video files are needed."
+  - motionFallback: true
+    $name: Automatically animate artwork if no playable video exists
+    $description: Uses the cover already supplied by Windows. With Both mode, keeps ordinary artwork and adds an animated tile; with Video mode, shows animated artwork in place of static art. Works without a video source or manually entered URL. This is not actual Spotify Canvas or a YouTube video.
+  - motionPreset: "slow_zoom"
+    $name: Automatic artwork motion preset
+    $options:
+    - slow_zoom: Slow cinematic zoom
+    - breathe: Gentle breathing zoom
+    - lyric_pulse: Animate only when lyric line changes
+    - still: Static second artwork (no animation)
+  - motionDurationMs: 6500
+    #! $min: 1500
+    #! $max: 15000
+    #! $format: slider
+    $name: Motion loop duration (ms)
+  - motionZoomPercent: 9
+    #! $min: 0
+    #! $max: 24
+    #! $format: slider
+    $name: Motion zoom amount (%)
+  - motionPulseOnLyrics: true
+    $name: Gently pulse the animated artwork when a new lyric line starts
+    $description: Triggers from the lyrics cue timeline; lyrics without accurate timestamps cannot have accurate pulses. Disables automatically when reduced-motion power saving is active.
+  - fullTaskbarHeight: true
+    $name: Video height follows taskbar top to bottom
+    $description: Fills the taskbar's measured height, subtracting the inset below. The actual playable height is limited to prevent accidental oversized playback.
+  - heightInset: 0
+    #! $min: 0
+    #! $max: 20
+    #! $format: slider
+    $name: Top and bottom inset total (DIPs)
+  - autoAspectRatio: true
+    $name: Automatically set width from real video aspect ratio
+    $description: After opening the stream, read its native dimensions and set width to height multiplied by aspect ratio. Avoids artificial black sidebars and distortion. Black bars encoded inside the video cannot be removed without cropping.
+  - maxAutoWidth: 180
+    #! $min: 36
+    #! $max: 320
+    #! $format: slider
+    $name: Maximum auto-width (DIPs)
+    $description: Very wide footage is cropped only if this limit is reached; otherwise maintain the native ratio.
+  - gapToLyrics: 4
+    #! $min: 0
+    #! $max: 48
+    #! $format: slider
+    $name: Additional gap toward lyrics (DIPs)
+    $description: Adds reserved clearance after the video toward the rest of the player. The regular layout still controls its separate title, playback controls, and lyrics spacing.
+  - folder: '%USERPROFILE%\Videos\TaskbarCanvas'
+    $name: Local song-video folder
+    $description: For each playing track, look for Artist - Title.mp4 in this folder. Supports environment variables. Missing clips hide this tile without affecting album artwork or lyrics.
+  - fixedFile: ""
+    $name: Fixed local MP4 file path (testing)
+    $description: Absolute file path. Used only in Fixed mode. Video stays silent and loops.
+  - position: "after"
+    $name: Video tile placement relative to album art
+    $options:
+    - after: After album artwork
+    - before: Before album artwork
+  - followArtSize: true
+    $name: Match album-art dimensions
+  - width: 32
+    #! $min: 12
+    #! $max: 96
+    #! $format: slider
+    $name: Video tile width (DIPs) when size matching is off
+  - height: 32
+    #! $min: 12
+    #! $max: 96
+    #! $format: slider
+    $name: Video tile height (DIPs) when size matching is off
+  - extraGap: 4
+    #! $min: 0
+    #! $max: 40
+    #! $format: slider
+    $name: Extra spacing from album artwork (DIPs)
+    $description: Adds to the always-present 3-DIP minimum clearance. A zero gap never causes overlap.
+  - horizontalSpace: 0
+    #! $min: -40
+    #! $max: 40
+    #! $format: slider
+    $name: Horizontal position adjustment (DIPs)
+    $description: Negative adds space on the right, positive adds space on the left; never draws over the album cover.
+  - verticalOffset: 0
+    #! $min: -12
+    #! $max: 12
+    #! $format: slider
+    $name: Vertical position adjustment (DIPs)
+  - matchArtStyle: true
+    $name: Match album-art opacity and corner styling
+    $description: When on, use the existing album-art opacity and per-corner radius settings; off allows independent video styling below.
+  - opacity: 100
+    #! $min: 0
+    #! $max: 100
+    #! $format: slider
+    $name: Video opacity (%)
+  - cornerRadius: 4
+    #! $min: 0
+    #! $max: 32
+    #! $format: slider
+    $name: Video tile corner radius (DIPs)
+    $description: Border radius styling; Windows XAML media surfaces may not mask their video at every corner on all builds.
+  - scaling: "crop"
+    $name: How video fits the tile
+    $options:
+    - crop: Fill tile and crop excess (recommended)
+    - fit: Fit entire video without cropping
+  - playWhenPaused: false
+    $name: Keep video looping when song is paused
+  - pauseOnBattery: true
+    $name: Pause video playback when power saving is active
+  - previewWithoutMusic: false
+    $name: Preview a fixed video (local or HTTPS) without music
+    $description: In a fixed-source mode, allow the clip to display without an active media session. Useful for testing the video tile independently of Spotify.
+  $name: Canvas / Online Video + automatic motion artwork
+
+- SongChangeSettings:
+   - enabled: true
+     $name: Animate song changes
+     $description: Animate only after actual track metadata changes. Keeps your existing cover size, player position and visualizer layout.
+   - preset: "cinematic"
+     $name: Song-change animation preset
+     $options:
+     - cinematic: Cinematic - fade with gentle lift and zoom
+     - slide_left: Slide in from left
+     - slide_right: Slide in from right
+     - slide_up: Slide in from below
+     - slide_down: Slide in from above
+     - zoom: Soft zoom in
+     - fade: Crossfade-style reveal
+     - instant: No animation
+     - float: Floating rise with soft scale
+     - pop: Quick scale pop
+     - soft_pulse: Gentle pulse from small size
+     - glide: Wide smooth glide
+     - drop: Drop in with soft landing
+     - drift: Slow diagonal drift
+   - easing: "silky"
+     $name: Song-change easing preset
+     $options:
+     - silky: Silky - slow start, fast middle, soft stop
+     - cinematic: Cinematic - strong smooth ease in/out
+     - quick: Quick start, soft finish
+     - linear: Linear
+     - gentle: Gentle sine easing
+     - dramatic: Dramatic quintic easing
+     - powerful: Powerful quartic easing
+     - arc: Circular slow-in-out
+   - durationMs: 420
+     #! $min: 100
+     #! $max: 1400
+     #! $format: slider
+     $name: Song-change transition duration (ms)
+   - travelDips: 12
+     #! $min: 0
+     #! $max: 45
+     #! $format: slider
+     $name: Song-change travel distance (DIPs)
+   - fadeFrom: 15
+     #! $min: 0
+     #! $max: 100
+     #! $format: slider
+     $name: Starting opacity (%)
+   - animateCover: true
+     $name: Animate album artwork
+   - animateText: true
+     $name: Animate song title and artist
+   - animateVisualizerColor: true
+     $name: Blend visualizer colors when album changes
+     $description: Applies to album-color modes. Solid/custom user colors are never overwritten.
+   - animateCanvas: true
+     $name: Animate video tile on track changes
 - AppearanceSettings:
   - BackgroundStyleSettings:
     - backgroundType: "none"
@@ -1270,6 +1683,10 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
   - hideFullscreen: true
     $name: Hide when a fullscreen app is running
     $name:ru-RU: Скрывать при запущенном полноэкранном приложении
+    $description: Existing behavior; full-screen is detected on the player's own monitor, never from a split/maximized window.
+  - allowInFullscreen: false
+    $name: Allow player in F11 / borderless fullscreen
+    $description: Overrides "Hide when a fullscreen app is running" when enabled. Windows may still hide its entire taskbar during fullscreen use; this mod does not force the taskbar above apps.
   - idleHideSeconds: 0
     $name: Idle auto-hide timeout (seconds, 0 = disabled)
     $name:ru-RU: Таймаут автоскрытия при бездействии (секунды, 0 = отключено)
@@ -1416,6 +1833,7 @@ Based on the original mod by Salyts: https://github.com/Salyts/Taskbar-Fluent-Me
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Documents.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Shapes.h>
@@ -1552,7 +1970,7 @@ static void ApplyCompactLayout(Settings& settings) {
     settings.playerMinWidth = settings.playerMaxWidth = 0; // Fit actual content.
     capSize(settings.albumArtMinWidth, settings.albumArtMaxWidth, 28);
     capSize(settings.albumArtMinHeight, settings.albumArtMaxHeight, 28);
-    capSize(settings.textAreaMinWidth, settings.textAreaMaxWidth, 80);
+    capSize(settings.textAreaMinWidth, settings.textAreaMaxWidth, 96);
     settings.lyricsWidth = std::min(settings.lyricsWidth, 120);
     settings.buttonSize = std::min(settings.buttonSize, 24);
     settings.buttonIconSize = std::min(settings.buttonIconSize, settings.buttonSize - 4);
@@ -1639,6 +2057,46 @@ struct ModSettings {
     int          lyricRefreshMs       = 100;
     bool         batterySaver         = true;
     bool         lyricsOnlineLookup   = true;
+    std::wstring hindiLyricsScript = L"roman";
+    bool         lyricsRequireNativeScript = false;
+    bool         rejectEnglishForHindiTitles = true;
+    bool         lyricsAvoidOverlap = true;
+    bool         showPlainLyrics = true;
+    bool         lyricsNoTimelineFallback = true;
+    int          lyricsHoldMs = 16000;
+    bool         lyricsWordFollow = true;
+    bool         lyricsEstimateWordTiming = true;
+    int          plainLyricsLineMs = 5000;
+    // Canvas is an optional independent tile. Online sources must be authorized HTTPS MP4 URLs.
+    bool         canvasEnabled = false;
+    std::wstring canvasDisplayMode = L"both";
+    std::wstring canvasSourceMode = L"auto_art";
+    std::wstring canvasFolder = L"%USERPROFILE%\\Videos\\TaskbarCanvas";
+    std::wstring canvasFixedFile;
+    std::wstring canvasOnlineCanvasUrl, canvasOnlineOfficialUrl, canvasOnlineTrackUrls;
+    bool canvasFullTaskbarHeight = true, canvasAutoAspectRatio = true;
+    int canvasHeightInset = 0, canvasMaxAutoWidth = 180, canvasGapToLyrics = 4;
+    std::wstring canvasPosition = L"after";
+    bool         canvasFollowArtSize = true;
+    int          canvasWidth = 32, canvasHeight = 32;
+    int          canvasExtraGap = 4, canvasHorizontalSpace = 0, canvasVerticalOffset = 0;
+    int          canvasOpacity = 100, canvasRadius = 4;
+    std::wstring canvasScaling = L"crop";
+    bool         canvasPlayWhenPaused = false, canvasPauseOnBattery = true;
+    bool         canvasMatchArtStyle = true, canvasPreviewWithoutMusic = false;
+    bool         canvasMotionFallback = true, canvasMotionPulseOnLyrics = true;
+    std::wstring canvasMotionPreset = L"slow_zoom";
+    int canvasMotionDurationMs = 6500, canvasMotionZoomPercent = 9;
+    bool         songChangeCanvas = true;
+    bool         songChangeEnabled = true;
+    std::wstring songChangePreset = L"cinematic";
+    std::wstring songChangeEase = L"silky";
+    int          songChangeDurationMs = 420;
+    int          songChangeTravel = 12;
+    int          songChangeStartOpacity = 15;
+    bool         songChangeCover = true;
+    bool         songChangeText = true;
+    bool         songChangeVizColor = true;
     int          lyricsWidth          = 230;
     int          lyricsFontSize       = 13;
     bool         lyricsTwoLineWrap    = true;
@@ -1722,6 +2180,7 @@ struct ModSettings {
     int          textAreaLeftMargin   = 5;
     int          textAreaRightMargin  = 5;
     bool         hideFullscreen       = true;
+    bool         allowInFullscreen    = false;
     int          idleHideSeconds      = 0;
     std::wstring backgroundType       = L"none";
     int          blurOpacity          = 65;
@@ -1802,6 +2261,21 @@ struct ModSettings {
     int          contextMenuIconOpacity   = 100;
     bool         vizEnabled      = false;
     std::wstring vizPosition     = L"right";
+    int          vizHorizontalOffset = 0;
+    int          vizVerticalOffset   = 0;
+    int          vizSectionGap       = 6;
+    bool         vizCompactEnabled   = true;
+    int          vizCompactGap       = 0;
+    int          vizCompactHorizontalOffset = 0;
+    int          vizCompactVerticalOffset   = 0;
+    int          vizMoveAnimationMs  = 350;
+    std::wstring vizTransitionStyle = L"slide";
+    std::wstring vizNearToFarEase = L"cinematic";
+    std::wstring vizFarToNearEase = L"match";
+    int          vizBeforeLyricsMs   = 500;
+    int          vizInstrumentalAfterMs = 5200;
+    std::wstring vizPreviewMode      = L"off";
+    int          vizPreviewStrength  = 70;
     VizShape     vizShape        = VizShape::Stereo;
     VizColorMode vizColorMode    = VizColorMode::Solid;
     VizEQ        vizEq           = VizEQ::Default;
@@ -1813,7 +2287,11 @@ struct ModSettings {
     int          vizBarWidth     = 5;
     int          vizBarGap       = 5;
     int          vizIdleBarSize  = 3;
+    int          vizRestingHeight = -1;  // -1 = preserve the old Width/Idle setting
     int          vizSensitivity  = 150;
+    int          vizRoundness    = 100;
+    std::wstring vizResponseMode = L"precise";
+    std::wstring vizFrameRate    = L"60";
     int          vizPadLeft      = 0;
     int          vizPadRight     = 0;
 };
@@ -1982,6 +2460,83 @@ static void LoadSettings() {
     g_settings.lyricRefreshMs = Int(L"PowerSettings.lyricRefreshMs", 50, 1000, 100);
     g_settings.batterySaver = Wh_GetIntSetting(L"PowerSettings.batterySaver") != 0;
     g_settings.lyricsOnlineLookup     = Wh_GetIntSetting(L"LyricsSettings.onlineLookup") != 0;
+    g_settings.hindiLyricsScript = Str(L"LyricsSettings.hindiLyricsScript", L"roman");
+    if (g_settings.hindiLyricsScript != L"native") g_settings.hindiLyricsScript = L"roman";
+    g_settings.lyricsRequireNativeScript = Wh_GetIntSetting(L"LyricsSettings.lyricsRequireNativeScript") != 0;
+    g_settings.rejectEnglishForHindiTitles = Wh_GetIntSetting(L"LyricsSettings.rejectEnglishForHindiTitles") != 0;
+    g_settings.lyricsAvoidOverlap = Wh_GetIntSetting(L"LyricsSettings.lyricsAvoidOverlap") != 0;
+    g_settings.showPlainLyrics = Wh_GetIntSetting(L"LyricsSettings.showPlainLyrics") != 0;
+    g_settings.lyricsNoTimelineFallback = Wh_GetIntSetting(L"LyricsSettings.lyricsNoTimelineFallback") != 0;
+    g_settings.lyricsHoldMs = Int(L"LyricsSettings.lyricsHoldMs", 3000, 60000, 16000);
+    g_settings.lyricsWordFollow = Wh_GetIntSetting(L"LyricsSettings.lyricsWordFollow") != 0;
+    g_settings.lyricsEstimateWordTiming = Wh_GetIntSetting(L"LyricsSettings.lyricsEstimateWordTiming") != 0;
+    g_settings.plainLyricsLineMs = Int(L"LyricsSettings.plainLyricsLineMs", 2000, 12000, 5000);
+    g_settings.canvasEnabled = Wh_GetIntSetting(L"CanvasVideoSettings.enabled") != 0;
+    g_settings.canvasDisplayMode = Str(L"CanvasVideoSettings.displayMode", L"both");
+    if (g_settings.canvasDisplayMode != L"video") g_settings.canvasDisplayMode = L"both";
+    g_settings.canvasSourceMode = Str(L"CanvasVideoSettings.sourceMode", L"auto_art");
+    if (g_settings.canvasSourceMode != L"auto_art" &&
+        g_settings.canvasSourceMode != L"fixed" &&
+        g_settings.canvasSourceMode != L"online_track" &&
+        g_settings.canvasSourceMode != L"online_canvas" &&
+        g_settings.canvasSourceMode != L"online_official") g_settings.canvasSourceMode = L"auto_art";
+    g_settings.canvasFolder = Str(L"CanvasVideoSettings.folder", L"%USERPROFILE%\\Videos\\TaskbarCanvas");
+    g_settings.canvasFixedFile = Str(L"CanvasVideoSettings.fixedFile", L"");
+    g_settings.canvasOnlineCanvasUrl = Str(L"CanvasVideoSettings.onlineCanvasUrl", L"");
+    g_settings.canvasOnlineOfficialUrl = Str(L"CanvasVideoSettings.onlineOfficialUrl", L"");
+    g_settings.canvasOnlineTrackUrls = Str(L"CanvasVideoSettings.onlineTrackUrls", L"");
+    g_settings.canvasFullTaskbarHeight = Wh_GetIntSetting(L"CanvasVideoSettings.fullTaskbarHeight") != 0;
+    g_settings.canvasHeightInset = Int(L"CanvasVideoSettings.heightInset", 0, 20, 0);
+    g_settings.canvasAutoAspectRatio = Wh_GetIntSetting(L"CanvasVideoSettings.autoAspectRatio") != 0;
+    g_settings.canvasMaxAutoWidth = Int(L"CanvasVideoSettings.maxAutoWidth", 36, 320, 180);
+    g_settings.canvasGapToLyrics = Int(L"CanvasVideoSettings.gapToLyrics", 0, 48, 4);
+    g_settings.canvasPosition = Str(L"CanvasVideoSettings.position", L"after");
+    if (g_settings.canvasPosition != L"before") g_settings.canvasPosition = L"after";
+    g_settings.canvasFollowArtSize = Wh_GetIntSetting(L"CanvasVideoSettings.followArtSize") != 0;
+    g_settings.canvasWidth = Int(L"CanvasVideoSettings.width", 12, 96, 32);
+    g_settings.canvasHeight = Int(L"CanvasVideoSettings.height", 12, 96, 32);
+    g_settings.canvasExtraGap = Int(L"CanvasVideoSettings.extraGap", 0, 40, 4);
+    g_settings.canvasHorizontalSpace = Int(L"CanvasVideoSettings.horizontalSpace", -40, 40, 0);
+    g_settings.canvasVerticalOffset = Int(L"CanvasVideoSettings.verticalOffset", -12, 12, 0);
+    g_settings.canvasMatchArtStyle = Wh_GetIntSetting(L"CanvasVideoSettings.matchArtStyle") != 0;
+    g_settings.canvasPreviewWithoutMusic = Wh_GetIntSetting(L"CanvasVideoSettings.previewWithoutMusic") != 0;
+    g_settings.canvasMotionFallback = Wh_GetIntSetting(L"CanvasVideoSettings.motionFallback") != 0;
+    g_settings.canvasMotionPreset = Str(L"CanvasVideoSettings.motionPreset", L"slow_zoom");
+    if (g_settings.canvasMotionPreset != L"breathe" &&
+        g_settings.canvasMotionPreset != L"lyric_pulse" &&
+        g_settings.canvasMotionPreset != L"still") g_settings.canvasMotionPreset = L"slow_zoom";
+    g_settings.canvasMotionDurationMs = Int(L"CanvasVideoSettings.motionDurationMs", 1500, 15000, 6500);
+    g_settings.canvasMotionZoomPercent = Int(L"CanvasVideoSettings.motionZoomPercent", 0, 24, 9);
+    g_settings.canvasMotionPulseOnLyrics = Wh_GetIntSetting(L"CanvasVideoSettings.motionPulseOnLyrics") != 0;
+    g_settings.canvasOpacity = Int(L"CanvasVideoSettings.opacity", 0, 100, 100);
+    g_settings.canvasRadius = Int(L"CanvasVideoSettings.cornerRadius", 0, 32, 4);
+    g_settings.canvasScaling = Str(L"CanvasVideoSettings.scaling", L"crop");
+    if (g_settings.canvasScaling != L"fit") g_settings.canvasScaling = L"crop";
+    g_settings.canvasPlayWhenPaused = Wh_GetIntSetting(L"CanvasVideoSettings.playWhenPaused") != 0;
+    g_settings.canvasPauseOnBattery = Wh_GetIntSetting(L"CanvasVideoSettings.pauseOnBattery") != 0;
+    g_settings.songChangeCanvas = Wh_GetIntSetting(L"SongChangeSettings.animateCanvas") != 0;
+    g_settings.songChangeEnabled = Wh_GetIntSetting(L"SongChangeSettings.enabled") != 0;
+    g_settings.songChangePreset = Str(L"SongChangeSettings.preset", L"cinematic");
+    if (g_settings.songChangePreset != L"cinematic" && g_settings.songChangePreset != L"slide_left" &&
+        g_settings.songChangePreset != L"slide_right" && g_settings.songChangePreset != L"slide_up" &&
+        g_settings.songChangePreset != L"slide_down" && g_settings.songChangePreset != L"zoom" &&
+        g_settings.songChangePreset != L"fade" && g_settings.songChangePreset != L"instant" &&
+        g_settings.songChangePreset != L"float" && g_settings.songChangePreset != L"pop" &&
+        g_settings.songChangePreset != L"soft_pulse" && g_settings.songChangePreset != L"glide" &&
+        g_settings.songChangePreset != L"drop" && g_settings.songChangePreset != L"drift")
+        g_settings.songChangePreset = L"cinematic";
+    g_settings.songChangeEase = Str(L"SongChangeSettings.easing", L"silky");
+    if (g_settings.songChangeEase != L"silky" && g_settings.songChangeEase != L"cinematic" &&
+        g_settings.songChangeEase != L"quick" && g_settings.songChangeEase != L"linear" &&
+        g_settings.songChangeEase != L"gentle" && g_settings.songChangeEase != L"dramatic" &&
+        g_settings.songChangeEase != L"powerful" && g_settings.songChangeEase != L"arc")
+        g_settings.songChangeEase = L"silky";
+    g_settings.songChangeDurationMs = Int(L"SongChangeSettings.durationMs", 100, 1400, 420);
+    g_settings.songChangeTravel = Int(L"SongChangeSettings.travelDips", 0, 45, 12);
+    g_settings.songChangeStartOpacity = Int(L"SongChangeSettings.fadeFrom", 0, 100, 15);
+    g_settings.songChangeCover = Wh_GetIntSetting(L"SongChangeSettings.animateCover") != 0;
+    g_settings.songChangeText = Wh_GetIntSetting(L"SongChangeSettings.animateText") != 0;
+    g_settings.songChangeVizColor = Wh_GetIntSetting(L"SongChangeSettings.animateVisualizerColor") != 0;
     g_settings.lyricsWidth            = Int(L"LyricsSettings.lyricsWidth", 120, 700, 230);
     g_settings.lyricsFontSize         = Int(L"LyricsSettings.lyricsFontSize", 8, 28, 12);
     g_settings.lyricsTwoLineWrap      = Wh_GetIntSetting(L"LyricsSettings.lyricsTwoLineWrap") != 0;
@@ -2085,10 +2640,46 @@ static void LoadSettings() {
     g_settings.artistColorOpacity   = Int(L"AppearanceSettings.ArtistTextStyleSettings.artistColorOpacity", 0, 100, 80);
     g_settings.vizEnabled      = Wh_GetIntSetting(L"MainSettings.VisualizerFunctionsSettings.vizEnabled") != 0;
     g_settings.vizPosition     = Str(L"MainSettings.VisualizerFunctionsSettings.vizPosition", L"right");
+    g_settings.vizHorizontalOffset = Int(L"MainSettings.VisualizerFunctionsSettings.vizHorizontalOffset", -100, 100, 0);
+    g_settings.vizVerticalOffset = Int(L"MainSettings.VisualizerFunctionsSettings.vizVerticalOffset", -20, 20, 0);
+    g_settings.vizSectionGap = Int(L"MainSettings.VisualizerFunctionsSettings.vizSectionGap", 0, 40, 6);
+    g_settings.vizCompactEnabled = Wh_GetIntSetting(L"MainSettings.VisualizerFunctionsSettings.vizCompactEnabled") != 0;
+    g_settings.vizCompactGap = Int(L"MainSettings.VisualizerFunctionsSettings.vizCompactGap", 0, 80, 0);
+    g_settings.vizCompactHorizontalOffset = Int(L"MainSettings.VisualizerFunctionsSettings.vizCompactHorizontalOffset", -100, 100, 0);
+    g_settings.vizCompactVerticalOffset = Int(L"MainSettings.VisualizerFunctionsSettings.vizCompactVerticalOffset", -20, 20, 0);
+    g_settings.vizMoveAnimationMs = Int(L"MainSettings.VisualizerFunctionsSettings.vizMoveAnimationMs", 0, 1600, 350);
+    g_settings.vizTransitionStyle = Str(L"MainSettings.VisualizerFunctionsSettings.vizTransitionStyle", L"slide");
+    if (g_settings.vizTransitionStyle != L"slide" && g_settings.vizTransitionStyle != L"fade" &&
+        g_settings.vizTransitionStyle != L"instant") g_settings.vizTransitionStyle = L"slide";
+    auto validVizEase = [](std::wstring const& v) {
+        return v == L"cinematic" || v == L"silky" || v == L"gentle" ||
+               v == L"dramatic" || v == L"powerful" || v == L"arc" ||
+               v == L"quick" || v == L"feather" || v == L"glide" ||
+               v == L"buildup" || v == L"linear";
+    };
+    g_settings.vizNearToFarEase = Str(L"MainSettings.VisualizerFunctionsSettings.vizNearToFarEase", L"cinematic");
+    if (!validVizEase(g_settings.vizNearToFarEase)) g_settings.vizNearToFarEase = L"cinematic";
+    g_settings.vizFarToNearEase = Str(L"MainSettings.VisualizerFunctionsSettings.vizFarToNearEase", L"match");
+    if (g_settings.vizFarToNearEase != L"match" && !validVizEase(g_settings.vizFarToNearEase))
+        g_settings.vizFarToNearEase = L"match";
+    g_settings.vizBeforeLyricsMs = Int(L"MainSettings.VisualizerFunctionsSettings.vizBeforeLyricsMs", 0, 1500, 500);
+    g_settings.vizInstrumentalAfterMs = Int(L"MainSettings.VisualizerFunctionsSettings.vizInstrumentalAfterMs", 500, 30000, 5200);
+    g_settings.vizPreviewMode = Str(L"MainSettings.VisualizerFunctionsSettings.vizPreviewMode", L"off");
+    if (g_settings.vizPreviewMode != L"near" && g_settings.vizPreviewMode != L"far" &&
+        g_settings.vizPreviewMode != L"cycle") g_settings.vizPreviewMode = L"off";
+    g_settings.vizPreviewStrength = Int(L"MainSettings.VisualizerFunctionsSettings.vizPreviewStrength", 10, 100, 70);
     g_settings.vizColor        = Str(L"AppearanceSettings.VisualizerStyleSettings.vizColor",  L"255 255 255");
     g_settings.vizColor1       = Str(L"AppearanceSettings.VisualizerStyleSettings.vizColor1", L"30 215 96");
     g_settings.vizColor2       = Str(L"AppearanceSettings.VisualizerStyleSettings.vizColor2", L"0 180 255");
     g_settings.vizSensitivity  = Int(L"MainSettings.VisualizerFunctionsSettings.vizSensitivity", 0, 300, 150);
+    g_settings.vizRoundness = Int(L"MainSettings.VisualizerFunctionsSettings.vizRoundness", 0, 100, 100);
+    g_settings.vizResponseMode = Str(L"MainSettings.VisualizerFunctionsSettings.vizResponseMode", L"precise");
+    if (g_settings.vizResponseMode != L"precise" &&
+        g_settings.vizResponseMode != L"balanced" &&
+        g_settings.vizResponseMode != L"smooth") g_settings.vizResponseMode = L"precise";
+    g_settings.vizFrameRate = Str(L"MainSettings.VisualizerFunctionsSettings.vizFrameRate", L"60");
+    if (g_settings.vizFrameRate != L"30" && g_settings.vizFrameRate != L"60")
+        g_settings.vizFrameRate = L"60";
     {
         int n = 7, gap = 5;
         ParseTwoInts(Str(L"MainSettings.VisualizerFunctionsSettings.vizBarCountGap", L"7 5"), n, gap);
@@ -2098,6 +2689,8 @@ static void LoadSettings() {
         ParseTwoInts(Str(L"MainSettings.VisualizerFunctionsSettings.vizBarSize", L"5 3"), w, h);
         g_settings.vizBarWidth    = std::clamp(w, 0, 40);
         g_settings.vizIdleBarSize = std::clamp(h, 0, 15);
+        g_settings.vizRestingHeight = Int(
+            L"MainSettings.VisualizerFunctionsSettings.vizRestingHeight", -1, 60, -1);
         int l = 0, r = 0;
         ParseTwoInts(Str(L"MainSettings.VisualizerFunctionsSettings.vizPadding", L"0 0"), l, r);
         g_settings.vizPadLeft  = std::clamp(l, 0, 200);
@@ -2210,6 +2803,7 @@ static void LoadSettings() {
     }
     g_settings.hideWhenNoMedia      = Wh_GetIntSetting(L"BehaviorSettings.hideWhenNoMedia")   != 0;
     g_settings.hideFullscreen       = Wh_GetIntSetting(L"BehaviorSettings.hideFullscreen")    != 0;
+    g_settings.allowInFullscreen    = Wh_GetIntSetting(L"BehaviorSettings.allowInFullscreen") != 0;
     g_settings.idleHideSeconds      = std::max(Wh_GetIntSetting(L"BehaviorSettings.idleHideSeconds"), 0);
     g_settings.playerHoverEffectMode = HoverMode(L"AppearanceSettings.BackgroundStyleSettings.enablePlayerHoverEffect");
     g_settings.mediaButtonsHoverEffectMode = HoverMode(L"AppearanceSettings.BackgroundStyleSettings.enableMediaButtonsHoverEffect");
@@ -2352,6 +2946,7 @@ static HANDLE g_timerUpdateEvent = nullptr;
 static std::atomic<bool> g_onBattery{false};
 static bool ReduceMotionForPower() { return g_settings.batterySaver && g_onBattery.load(); }
 static std::atomic<bool> g_needsLyricsUiUpdate{false};
+static std::atomic<bool> g_needsLyricsLayoutUpdate{false};
 static std::atomic<bool> g_timelineDirty{true};
 static void DispatchLyricsUpdate() {
     if (!g_unloading && !g_applyingSettings) g_needsLyricsUiUpdate = true;
@@ -2425,6 +3020,29 @@ static const CLSID XIID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 static const IID XIID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 static const IID XIID_IAudioSessionManager2 = __uuidof(IAudioSessionManager2);
 [[clang::no_destroy]] static Grid             g_playerGrid      = nullptr;
+// Native muted media is created only when Canvas is enabled. UI thread owns it.
+[[clang::no_destroy]] static MediaElement     g_canvasMedia = nullptr;
+[[clang::no_destroy]] static Controls::Image g_canvasMotionImage = nullptr;
+[[clang::no_destroy]] static Storyboard g_canvasMotionStoryboard = nullptr;
+[[clang::no_destroy]] static Storyboard g_canvasMotionPulseStoryboard = nullptr;
+static std::wstring g_canvasMotionTrackKey;
+static bool g_canvasMotionAnimating = false;
+static void PulseCanvasMotionArtwork();
+static void SyncCanvasMotionArtwork(const std::wstring& title, const std::wstring& artist, bool hasSession, bool isPlaying);
+[[clang::no_destroy]] static Grid             g_canvasTile = nullptr;
+[[clang::no_destroy]] static Grid             g_canvasArtwork = nullptr;
+static bool g_canvasVideoReady = false;
+// MediaOpened callback is defined before the song-change animation helper.
+static void AnimateSongChangeElement(FrameworkElement element);
+static void UpdateCanvasFallbackVisibility();
+static void UpdateCanvasVideoGeometry();
+static std::wstring g_canvasCurrentPath;
+static bool g_canvasCurrentlyPlaying = false;
+static bool g_canvasJustChanged = false;
+static std::wstring g_canvasBadPath;
+static std::wstring g_canvasLookupKey;
+static std::chrono::steady_clock::time_point g_canvasLastLookup{};
+static std::wstring g_canvasLastFoundFile;
 [[clang::no_destroy]] static FrameworkElement g_injectionParent = nullptr;
 [[clang::no_destroy]] static XamlRoot g_cachedTaskbarXamlRoot{nullptr};
 static HWND g_cachedTaskbarRootWindow = nullptr;
@@ -2465,6 +3083,15 @@ static constexpr wchar_t kLyricsOverlayHostName[] = L"FluentLyrics_ZeroMeasureOv
 [[clang::no_destroy]] static Storyboard g_lyricsOpacityStoryboard = nullptr;
 static double g_lyricsTargetWidth = -1.0;
 static double g_playerOverlayWidth = 0.0;
+// Normal visualizer column belongs to the full player grid; no UI refs survive reinjection.
+static int g_vizNormalColumn = -1;
+static bool g_compactNoLyricsActive = false;
+// UI-thread-only movement storyboard is stopped before destroying the player.
+[[clang::no_destroy]] static Storyboard g_vizDockStoryboard = nullptr;
+// Preview alternates at a steady cadence; never depends on an online lyric lookup.
+static const auto g_vizPreviewEpoch = std::chrono::steady_clock::now();
+static bool g_albumArtworkHovered = false;
+static bool g_albumArtworkPlaying = false;
 static bool g_lyricsTargetVisible = true;
 static std::chrono::steady_clock::time_point g_lyricsLastLayoutTime{};
 using CTaskBand_GetTaskbarHost_t  = void*(WINAPI*)(void*, void*);
@@ -2552,17 +3179,27 @@ static std::mutex g_mediaMtx;
 static std::mutex g_sessionMtx;
 
 // ---- Time-synchronized lyrics engine (LRCLIB; playback timeline is from GSMTC) ----
-struct LyricCue { int64_t timeMs = 0; std::wstring text; };
-struct LyricRecord { std::vector<LyricCue> cues; };
-struct LyricLookupResult { std::vector<LyricCue> cues; bool networkError = false; };
+struct LyricCue {
+    int64_t timeMs = 0;
+    std::wstring text;
+    // -1 denotes a word without explicit timing. Never infer timing at lookup.
+    std::vector<int64_t> wordTimesMs;
+};
+struct LyricRecord { std::vector<LyricCue> cues; bool unsynced = false; };
+struct LyricLookupResult { std::vector<LyricCue> cues; bool unsynced = false; bool networkError = false; };
 static std::mutex g_lyricsMutex;
 static std::wstring g_lyricsKey;
-static std::wstring g_lyricsRequestedTitle, g_lyricsRequestedArtist;
+static std::wstring g_lyricsRequestedTitle, g_lyricsRequestedArtist, g_lyricsRequestedAlbum;
+static int g_lyricsRequestedDuration = 0;
 static std::vector<LyricCue> g_lyricsCues;
+static bool g_lyricsUnsynced = false;
 // Cache only successful lookups; unavailable songs can appear in the catalog later.
 static std::vector<std::pair<std::wstring, LyricRecord>> g_lyricsCache;
 static uint64_t g_lyricsGeneration = 0;
 static int g_lyricsCurrentIndex = -1;
+static int g_lyricsDisplayIndex = -1; // -1 during instrumental/silent-lyric intervals
+static int g_lyricsDisplayWordIndex = -1; // -1 means no supported word progress
+static bool g_lyricsFarDueSoon = false; // true during configured pre-cue lead-in
 static bool g_lyricsWorkerActive = false;
 static bool g_lyricsPending = false;
 static bool g_lyricsNeedRetry = false;
@@ -2601,6 +3238,92 @@ static std::wstring LyricsUrlEncode(const std::wstring& text) {
     }
     return encoded;
 }
+// Enhanced LRC can contain <mm:ss.mmm> markers before individual words.
+// Parse only valid timing tags: never delete ordinary angle-bracketed text.
+// This line-based renderer uses the markers for cleanup, not word-level UI.
+static bool ParseEnhancedLrcTimeTag(const std::wstring& line, size_t at,
+                                    size_t& after, int64_t* timeMs = nullptr) {
+    if (at >= line.size() || line[at] != L'<') return false;
+    size_t p = at + 1;
+    int minutes = 0;
+    int mDigits = 0;
+    while (p < line.size() && line[p] >= L'0' && line[p] <= L'9' && mDigits < 3) {
+        minutes = minutes * 10 + (line[p++] - L'0');
+        ++mDigits;
+    }
+    if (mDigits < 1 || p >= line.size() || line[p++] != L':') return false;
+    if (p + 1 >= line.size() || line[p] < L'0' || line[p] > L'9' ||
+        line[p + 1] < L'0' || line[p + 1] > L'9') return false;
+    const int seconds = (line[p] - L'0') * 10 + (line[p + 1] - L'0');
+    p += 2;
+    if (seconds >= 60) return false;
+    int millis = 0;
+    int decimals = 0;
+    if (p < line.size() && line[p] == L'.') {
+        ++p;
+        while (p < line.size() && line[p] >= L'0' && line[p] <= L'9' && decimals < 3) {
+            millis = millis * 10 + (line[p++] - L'0');
+            ++decimals;
+        }
+        if (decimals == 0) return false;
+        while (decimals++ < 3) millis *= 10;
+    }
+    if (p >= line.size() || line[p] != L'>') return false;
+    after = p + 1;
+    if (timeMs) *timeMs = minutes * 60000LL + seconds * 1000LL + millis;
+    return true;
+}
+static std::wstring StripEnhancedLrcTimeTags(const std::wstring& text) {
+    if (text.find(L'<') == std::wstring::npos) return text;
+    std::wstring result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < text.size();) {
+        size_t after = i;
+        if (text[i] == L'<' && ParseEnhancedLrcTimeTag(text, i, after)) {
+            i = after;
+        } else {
+            result.push_back(text[i++]);
+        }
+    }
+    return result;
+}
+// One-time, bounded enhanced-LRC word timestamp parsing. Display text is
+// still derived from StripEnhancedLrcTimeTags so normal formatting is retained.
+// Tags inside a token (syllable data) keep that token's initial timestamp.
+static std::vector<int64_t> ParseEnhancedLrcWordTimes(const std::wstring& raw) {
+    std::vector<int64_t> times;
+    times.reserve(16);
+    int64_t pendingTime = -1, wordTime = -1;
+    bool inWord = false;
+    for (size_t i = 0; i < raw.size();) {
+        size_t after = i;
+        int64_t timestamp = 0;
+        if (raw[i] == L'<' && ParseEnhancedLrcTimeTag(raw, i, after, &timestamp)) {
+            // A time tag can start a new word even when no space was inserted.
+            if (inWord) { times.push_back(wordTime); inWord = false; }
+            pendingTime = timestamp;
+            i = after;
+        } else if (iswspace(raw[i])) {
+            if (inWord) { times.push_back(wordTime); inWord = false; }
+            ++i;
+        } else {
+            if (!inWord) { wordTime = pendingTime; pendingTime = -1; inWord = true; }
+            ++i;
+        }
+        if (times.size() > 128) return {}; // avoid pathological/malformed lines
+    }
+    if (inWord) times.push_back(wordTime);
+    return times;
+}
+static int CountLyricWords(const std::wstring& text) {
+    int count = 0;
+    bool inWord = false;
+    for (wchar_t ch : text) {
+        if (iswspace(ch)) inWord = false;
+        else if (!inWord) { inWord = true; ++count; }
+    }
+    return count;
+}
 static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
     std::vector<LyricCue> cues;
     size_t start = 0;
@@ -2632,14 +3355,38 @@ static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
             } catch (...) { break; }
             pos = close + 1;
         }
-        if (timestamps.empty()) continue;
-        std::wstring content = line.substr(pos);
+        if (timestamps.empty()) {
+            // Some enhanced-LRC files omit the outer [mm:ss.xx] line marker.
+            // The first <mm:ss.mmm> word tag can still anchor the line.
+            size_t first = line.find_first_not_of(L" \t");
+            size_t after = 0;
+            int64_t firstMs = 0;
+            if (first == std::wstring::npos ||
+                !ParseEnhancedLrcTimeTag(line, first, after, &firstMs)) continue;
+            timestamps.push_back(firstMs);
+            pos = first;
+        }
+        std::wstring raw = line.substr(pos);
+        std::wstring content = StripEnhancedLrcTimeTags(raw);
+        std::vector<int64_t> wordTimes = ParseEnhancedLrcWordTimes(raw);
         size_t first = content.find_first_not_of(L" \t");
         if (first == std::wstring::npos) content.clear();
         else content.erase(0, first);
         size_t last = content.find_last_not_of(L" \t");
         if (last != std::wstring::npos) content.erase(last + 1);
-        for (auto ms : timestamps) if (cues.size() < 4000) cues.push_back({ms, content});
+        // Preserve explicit word clocks only when they align exactly with the
+        // visible words and are monotonic. Otherwise fall back to line timing.
+        if ((int)wordTimes.size() != CountLyricWords(content)) wordTimes.clear();
+        int explicitTags = 0;
+        int64_t previous = -1;
+        for (auto t : wordTimes) if (t >= 0) {
+            if (previous > t) { wordTimes.clear(); break; }
+            previous = t;
+            ++explicitTags;
+        }
+        if (explicitTags < 2) wordTimes.clear();
+        for (auto ms : timestamps) if (cues.size() < 4000)
+            cues.push_back({ms, content, wordTimes});
     }
     std::stable_sort(cues.begin(), cues.end(), [](const LyricCue& a, const LyricCue& b) {
         return a.timeMs < b.timeMs;
@@ -2649,7 +3396,10 @@ static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
     unique.reserve(cues.size());
     for (auto& cue : cues) {
         if (!unique.empty() && unique.back().timeMs == cue.timeMs) {
-            if (!cue.text.empty() || unique.back().text.empty()) unique.back().text = std::move(cue.text);
+            if (!cue.text.empty() || unique.back().text.empty()) {
+                unique.back().text = std::move(cue.text);
+                unique.back().wordTimesMs = std::move(cue.wordTimesMs);
+            }
         } else unique.push_back(std::move(cue));
     }
     return unique;
@@ -3080,6 +3830,31 @@ static std::wstring NormalizeLyricsMatch(std::wstring text) {
     }
     return out;
 }
+// Spotify's GSMTC Artist field often combines performers ("A, B", "A & B", etc.),
+// while LRCLIB may credit only one primary artist. Keep the full name as the
+// strongest match and accept a primary-artist match only as a fallback.
+static std::vector<std::wstring> LyricsArtistMatchKeys(const std::wstring& artist) {
+    std::vector<std::wstring> keys;
+    auto add = [&](const std::wstring& value) {
+        auto normalized = NormalizeLyricsMatch(LyricsRomanizeIndic(value));
+        if (normalized.size() < 3) return;  // Avoid unsafe one-letter matches.
+        if (std::find(keys.begin(), keys.end(), normalized) == keys.end())
+            keys.push_back(std::move(normalized));
+    };
+    add(artist);
+    std::wstring lower = artist;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](wchar_t c) { return (wchar_t)towlower(c); });
+    size_t split = std::wstring::npos;
+    for (auto delim : {L", ", L"; ", L" & ", L" + ", L" feat. ",
+                       L" ft. ", L" featuring ", L" with ", L" x "}) {
+        size_t at = lower.find(delim);
+        if (at != std::wstring::npos && (split == std::wstring::npos || at < split))
+            split = at;
+    }
+    if (split != std::wstring::npos) add(artist.substr(0, split));
+    return keys;
+}
 static std::wstring LyricsCleanTitle(std::wstring title) {
     // Strip just the common VIDEO/AUDIO tags appended by browser media sessions.
     for (const wchar_t* tag : {L"(official video)", L"(official music video)",
@@ -3113,6 +3888,30 @@ static std::vector<std::wstring> LyricsTitleVariants(const std::wstring& origina
     };
     add(original);
     if (LyricsHasIndicScript(original)) add(LyricsRomanizeIndic(original));
+    // Spotify sometimes appends a featured-artist credit to the *title* even
+    // though LRCLIB stores the recording under its plain name. Try this only
+    // after the full title, and never remove (Live), (Remix), or (Acoustic).
+    std::wstring titleLower = original;
+    std::transform(titleLower.begin(), titleLower.end(), titleLower.begin(),
+                   [](wchar_t c) { return (wchar_t)towlower(c); });
+    size_t feat = std::wstring::npos;
+    for (auto marker : {L" (feat.", L" [feat.", L" (ft.", L" [ft.",
+                        L" (featuring ", L" [featuring "}) {
+        const auto pos = titleLower.find(marker);
+        if (pos != std::wstring::npos && (feat == std::wstring::npos || pos < feat))
+            feat = pos;
+    }
+    if (feat != std::wstring::npos) add(original.substr(0, feat));
+    for (const wchar_t* cosmetic : {L" (from ", L" [from ", L" (official song)",
+                                   L" (official music)", L" (full song)", L" (audio)",
+                                   L" (video)", L" (song)", L" | official"}) {
+        const auto pos = titleLower.find(cosmetic);
+        if (pos != std::wstring::npos && pos >= 2) add(original.substr(0, pos));
+    }
+    // A streaming title may append a music-video description after a pipe.
+    // The original title still takes priority; artist matching remains mandatory.
+    const auto pipe = original.find(L" | ");
+    if (pipe != std::wstring::npos && pipe >= 2) add(original.substr(0, pipe));
     const auto sep = original.find(L" - ");
     if (sep != std::wstring::npos && !artist.empty()) {
         auto left = original.substr(0, sep);
@@ -3129,7 +3928,7 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     json.clear();
     if ((g_unloading.load() || g_applyingSettings.load())) return false;
     struct InternetHandle { HINTERNET value = nullptr; ~InternetHandle() { if (value) WinHttpCloseHandle(value); } } session, connect, request;
-    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.0.7 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session.value = WinHttpOpen(L"TaskbarFluentLyrics/3.1.4 (Windhawk taskbar lyrics)", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session.value) return false;
     WinHttpSetTimeouts(session.value, 2000, 2000, 5000, 5000);
@@ -3156,80 +3955,221 @@ static bool LyricsHttpGet(const std::wstring& path, std::string& json, DWORD& st
     }
     return !(g_unloading.load() || g_applyingSettings.load());
 }
-static std::vector<LyricCue> LyricsCuesFromJson(winrt::Windows::Data::Json::JsonObject const& obj) {
-    if (!obj || !obj.HasKey(L"syncedLyrics")) return {};
-    auto value = obj.Lookup(L"syncedLyrics");
-    if (!value || value.ValueType() != winrt::Windows::Data::Json::JsonValueType::String) return {};
-    return ParseLrcLines(std::wstring(value.GetString()));
+static std::vector<LyricCue> LyricsCuesFromJson(winrt::Windows::Data::Json::JsonObject const& obj,
+                                                   bool* isPlain = nullptr) {
+    if (isPlain) *isPlain = false;
+    if (!obj) return {};
+    if (obj.HasKey(L"syncedLyrics")) {
+        auto value = obj.Lookup(L"syncedLyrics");
+        if (value && value.ValueType() == winrt::Windows::Data::Json::JsonValueType::String) {
+            auto timed = ParseLrcLines(std::wstring(value.GetString()));
+            if (!timed.empty()) return timed;
+        }
+    }
+    if (!g_settings.showPlainLyrics || !obj.HasKey(L"plainLyrics")) return {};
+    auto plain = obj.Lookup(L"plainLyrics");
+    if (!plain || plain.ValueType() != winrt::Windows::Data::Json::JsonValueType::String) return {};
+    const std::wstring content = plain.GetString().c_str();
+    std::vector<LyricCue> result;
+    size_t start = 0;
+    while (start < content.size() && result.size() < 70) {
+        size_t end = content.find_first_of(L"\r\n", start);
+        if (end == std::wstring::npos) end = content.size();
+        auto line = StripEnhancedLrcTimeTags(
+            content.substr(start, std::min<size_t>(end - start, 200)));
+        start = end + 1;
+        auto first = line.find_first_not_of(L" \t");
+        if (first == std::wstring::npos) continue;
+        line.erase(0, first);
+        auto last = line.find_last_not_of(L" \t");
+        if (last != std::wstring::npos) line.erase(last + 1);
+        if (line.empty()) continue;
+        // These are DISPLAY intervals, not true synchronization. Keep status
+        // in diagnostics rather than placing 'Unsynced' before every lyric line.
+        result.push_back({(int64_t)result.size() * g_settings.plainLyricsLineMs, line});
+    }
+    if (!result.empty() && isPlain) *isPlain = true;
+    return result;
+}
+// Reject wrong-track LRCLIB results BEFORE reading or caching their lyrics.
+// Search returns records with loose matching; /api/get is also a best-match API,
+// so neither endpoint is trusted without this independent verification.
+static int LyricsMatchRecordScore(const winrt::Windows::Data::Json::JsonObject& obj,
+                                  const std::wstring& title, const std::wstring& artist,
+                                  const std::wstring& album, int durationSec) {
+    if (!obj) return -1;
+    const auto trackKey = NormalizeLyricsMatch(LyricsRomanizeIndic(title));
+    const auto recordKey = NormalizeLyricsMatch(LyricsRomanizeIndic(
+        std::wstring(obj.GetNamedString(L"trackName", L""))));
+    if (trackKey.empty() || recordKey != trackKey) return -1;
+    int score = 100;
+    if (!artist.empty()) {
+        const auto wanted = LyricsArtistMatchKeys(artist);
+        const auto received = LyricsArtistMatchKeys(std::wstring(obj.GetNamedString(L"artistName", L"")));
+        if (wanted.empty() || received.empty()) return -1;
+        bool matched = false;
+        for (const auto& w : wanted)
+            for (const auto& r : received)
+                if (w == r) matched = true;
+        if (!matched) return -1; // No substring / single-token artist guesses.
+        score += wanted.front() == received.front() ? 60 : 25;
+    }
+    if (durationSec > 0 && obj.HasKey(L"duration")) {
+        auto v = obj.Lookup(L"duration");
+        if (v && v.ValueType() == winrt::Windows::Data::Json::JsonValueType::Number) {
+            const double seconds = v.GetNumber();
+            if (std::isfinite(seconds) && seconds > 0) {
+                // A different edit/remaster can contain unrelated timed verses.
+                if (std::fabs(seconds - durationSec) > 4.0) return -1;
+                score += 50;
+            }
+        }
+    }
+    if (!album.empty()) {
+        const auto wantedAlbum = NormalizeLyricsMatch(LyricsRomanizeIndic(album));
+        const auto foundAlbum = NormalizeLyricsMatch(LyricsRomanizeIndic(
+            std::wstring(obj.GetNamedString(L"albumName", L""))));
+        if (!foundAlbum.empty() && wantedAlbum == foundAlbum) score += 25;
+        // Do not reject differing album names: singles and compilations can
+        // legitimately contain the same recording.
+    }
+    return score;
+}
+// LRCLIB can contain an English translation even when the title/artist match.
+// The Windows media API does not expose the track language, so use this only
+// for recognizable romanized Hindi titles, never as a universal language test.
+static bool LyricsTokenPresent(const std::wstring& normalized, const wchar_t* token) {
+    if (normalized.empty()) return false;
+    const std::wstring padded = L" " + normalized + L" ";
+    const std::wstring needle = L" " + std::wstring(token) + L" ";
+    return padded.find(needle) != std::wstring::npos;
+}
+static bool LyricsTitleLooksIndic(const std::wstring& title) {
+    if (LyricsHasIndicScript(title)) return true;
+    const auto normalized = NormalizeLyricsMatch(title);
+    for (const wchar_t* distinctive : {
+            L"bandhu", L"jugnu", L"chandni", L"chandani", L"khwaahish",
+            L"sajna", L"sajni", L"naina", L"naino", L"ishq", L"pyaar",
+            L"zindagi", L"mohabbat", L"yaara", L"sanam", L"saiyaan"}) {
+        if (LyricsTokenPresent(normalized, distinctive)) return true;
+    }
+    int hits = 0;
+    for (const wchar_t* common : {
+            L"tum", L"tu", L"hi", L"ho", L"hai", L"dil", L"tere",
+            L"teri", L"tera", L"mera", L"meri", L"main", L"mein",
+            L"kya", L"kaise", L"yaar", L"kyun", L"nahi", L"nahin",
+            L"rahe", L"rahi", L"abhi", L"saath", L"kabhi", L"aaja"}) {
+        if (LyricsTokenPresent(normalized, common) && ++hits >= 2) return true;
+    }
+    return false;
+}
+static bool LyricsLooksRomanIndic(const std::vector<LyricCue>& cues) {
+    // Count DISTINCT markers across a bounded sample, rather than assuming
+    // every Latin-script record is English or every Romanized line is Hindi.
+    std::wstring sample;
+    for (size_t i = 0; i < cues.size() && i < 32 && sample.size() < 4000; ++i) {
+        sample += L" ";
+        sample += cues[i].text.substr(0, 160);
+    }
+    const auto normalized = NormalizeLyricsMatch(sample);
+    int hits = 0;
+    for (const wchar_t* marker : {
+            L"tum", L"tujhe", L"tera", L"teri", L"tere", L"main",
+            L"mein", L"mera", L"meri", L"mere", L"hum", L"ham",
+            L"dil", L"ishq", L"pyaar", L"pyar", L"yaara", L"yaar",
+            L"sajna", L"saiyaan", L"naina", L"jag", L"raat",
+            L"raaton", L"sapna", L"zindagi", L"hai", L"hain",
+            L"nahi", L"nahin", L"hoon", L"tere", L"tera", L"kabhi",
+            L"kya", L"kaise", L"kyun", L"saath", L"koi", L"jaan",
+            L"jaane", L"aaja", L"mujhe", L"mujh", L"teri", L"rahe",
+            L"wala", L"tere", L"baat", L"kuch", L"mujhko"}) {
+        if (LyricsTokenPresent(normalized, marker) && ++hits >= 2) return true;
+    }
+    return false;
+}
+static bool LyricsRecordScriptAllowed(const std::vector<LyricCue>& cues,
+                                     const std::wstring& requestedTitle) {
+    bool hasIndicScript = false;
+    for (const auto& cue : cues) {
+        if (LyricsHasIndicScript(cue.text)) { hasIndicScript = true; break; }
+    }
+    if (g_settings.lyricsRequireNativeScript && !hasIndicScript) return false;
+    if (g_settings.rejectEnglishForHindiTitles &&
+        LyricsTitleLooksIndic(requestedTitle) && !hasIndicScript &&
+        !LyricsLooksRomanIndic(cues)) return false;
+    return true;
 }
 static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
-                                                       const std::wstring& artist) {
+                                                       const std::wstring& artist,
+                                                       const std::wstring& album,
+                                                       int durationSec) {
     LyricLookupResult result;
     if (title.empty() || (g_unloading.load() || g_applyingSettings.load())) return result;
     auto titles = LyricsTitleVariants(title, artist);
     if (titles.empty() || artist.size() > 240) return result;
 
+    int bestScore = -1;
+    // Compare scores across ALL search passes and title variants. Avoid a later
+    // broad search replacing an earlier exact / high-confidence match.
     auto evaluateSearchResults = [&](const std::string& response,
                                      const std::wstring& requestedTitle) {
         try {
             winrt::Windows::Data::Json::JsonArray records{nullptr};
             if (!winrt::Windows::Data::Json::JsonArray::TryParse(
                     winrt::hstring(LyricsFromUtf8(response)), records)) return;
-            const auto titleKey = NormalizeLyricsMatch(LyricsRomanizeIndic(requestedTitle));
-            const auto artistKey = NormalizeLyricsMatch(LyricsRomanizeIndic(artist));
-            int highestScore = -1;
-            const uint32_t length = std::min<uint32_t>(records.Size(), 20);
-            for (uint32_t i = 0; i < length; ++i) {
-                if ((g_unloading.load() || g_applyingSettings.load())) break;
+            const uint32_t count = std::min<uint32_t>(records.Size(), 20);
+            for (uint32_t i = 0; i < count; ++i) {
+                if (g_unloading.load() || g_applyingSettings.load()) return;
                 auto value = records.GetAt(i);
                 if (value.ValueType() != winrt::Windows::Data::Json::JsonValueType::Object) continue;
                 auto obj = value.GetObject();
-                auto cues = LyricsCuesFromJson(obj);
-                if (cues.empty()) continue;
-                std::wstring candidateTitle = NormalizeLyricsMatch(LyricsRomanizeIndic(
-                    std::wstring(obj.GetNamedString(L"trackName", L""))));
-                std::wstring candidateArtist = NormalizeLyricsMatch(LyricsRomanizeIndic(
-                    std::wstring(obj.GetNamedString(L"artistName", L""))));
-                const bool exact = candidateTitle == titleKey;
-                const bool looseTitleMatch = !exact && titleKey.size() >= 7 && candidateTitle.size() >= 7 &&
-                    (candidateTitle.find(titleKey) != std::wstring::npos ||
-                     titleKey.find(candidateTitle) != std::wstring::npos);
-                if (!exact && !looseTitleMatch) continue;
-                int score = exact ? 100 : 45;
-                if (!artistKey.empty()) {
-                    const bool sameArtist = candidateArtist == artistKey;
-                    const bool relatedArtist = !sameArtist && candidateArtist.size() >= 3 &&
-                        (candidateArtist.find(artistKey) != std::wstring::npos ||
-                         artistKey.find(candidateArtist) != std::wstring::npos);
-                    if (!sameArtist && !relatedArtist) continue;
-                    score += sameArtist ? 50 : 20;
-                }
-                if (score > highestScore) {
-                    highestScore = score;
+                int score = LyricsMatchRecordScore(obj, requestedTitle, artist, album, durationSec);
+                if (score < 0) continue;
+                bool plain = false;
+                auto cues = LyricsCuesFromJson(obj, &plain);
+                if (cues.empty() || !LyricsRecordScriptAllowed(cues, requestedTitle)) continue;
+                if (plain) score -= 1000;
+                if (score > bestScore) {
+                    bestScore = score;
                     result.cues = std::move(cues);
+                    result.unsynced = plain;
                 }
             }
         } catch (...) {}
     };
     std::string json;
     DWORD status = 0;
-    for (size_t variant = 0; variant < titles.size() && variant < 2; ++variant) {
+    for (size_t variant = 0; variant < titles.size() && variant < 5; ++variant) {
         if ((g_unloading.load() || g_applyingSettings.load())) break;
         const auto& cleanTitle = titles[variant];
         // Query Roman artist for Roman title; retain original when both are Indic.
         const std::wstring lookupArtist = LyricsHasIndicScript(cleanTitle)
             ? artist : LyricsRomanizeIndic(artist);
-        if (!artist.empty()) {
-            const std::wstring exact = L"/api/get?track_name=" + LyricsUrlEncode(cleanTitle) +
+        if (!artist.empty() && variant == 0) {
+            std::wstring exact = L"/api/get?track_name=" + LyricsUrlEncode(cleanTitle) +
                 L"&artist_name=" + LyricsUrlEncode(lookupArtist);
+            if (!album.empty()) exact += L"&album_name=" + LyricsUrlEncode(album);
+            if (durationSec > 0) exact += L"&duration=" + std::to_wstring(durationSec);
             if (!LyricsHttpGet(exact, json, status)) result.networkError = true;
             else if (status == 200) {
                 try {
                     winrt::Windows::Data::Json::JsonObject obj{nullptr};
                     if (winrt::Windows::Data::Json::JsonObject::TryParse(
                             winrt::hstring(LyricsFromUtf8(json)), obj)) {
-                        result.cues = LyricsCuesFromJson(obj);
-                        if (!result.cues.empty()) return result;
+                        const int score = LyricsMatchRecordScore(obj, cleanTitle, artist,
+                                                               album, durationSec);
+                        if (score >= 0) {
+                            bool plain = false;
+                            auto cues = LyricsCuesFromJson(obj, &plain);
+                            if (!cues.empty() && LyricsRecordScriptAllowed(cues, cleanTitle)) {
+                                result.cues = std::move(cues);
+                                result.unsynced = plain;
+                                bestScore = score - (plain ? 1000 : 0);
+                                if (!plain) return result;
+                            }
+                        } else {
+                            Wh_Log(L"Lyrics: rejected /api/get result with mismatched track, artist or duration");
+                        }
                     }
                 } catch (...) {}
             } else if (status == 429) { result.networkError = true; return result; }
@@ -3255,8 +4195,9 @@ static LyricLookupResult FetchSyncedLyricsFromLrclib(const std::wstring& title,
             if (status >= 500) { result.networkError = true; continue; }
             if (status != 200) continue;
             evaluateSearchResults(json, cleanTitle);
-            if (!result.cues.empty()) return result;
+            if (!result.cues.empty() && !result.unsynced) return result;
         }
+        if (result.unsynced && variant >= 1) break;
     }
     return result;
 }
@@ -3271,7 +4212,8 @@ static void LyricsLookupWorker() {
         ~Apartment() { if (initialized) winrt::uninit_apartment(); }
     } apartment;
     for (;;) {
-        std::wstring key, title, artist;
+        std::wstring key, title, artist, album;
+        int durationSec = 0;
         uint64_t serial = 0;
         {
             std::lock_guard<std::mutex> lk(g_lyricsMutex);
@@ -3283,9 +4225,11 @@ static void LyricsLookupWorker() {
             key = g_lyricsKey;
             title = g_lyricsRequestedTitle;
             artist = g_lyricsRequestedArtist;
+            album = g_lyricsRequestedAlbum;
+            durationSec = g_lyricsRequestedDuration;
             serial = g_lyricsGeneration;
         }
-        auto found = FetchSyncedLyricsFromLrclib(title, artist);
+        auto found = FetchSyncedLyricsFromLrclib(title, artist, album, durationSec);
         bool resultChanged = false;
         {
             std::lock_guard<std::mutex> lk(g_lyricsMutex);
@@ -3293,13 +4237,28 @@ static void LyricsLookupWorker() {
             if (g_lyricsGeneration == serial && g_lyricsKey == key) {
                 if (!found.cues.empty()) {
                     g_lyricsCues = found.cues;
+                    g_lyricsUnsynced = found.unsynced;
                     g_lyricsCurrentIndex = -1;
+                    g_lyricsDisplayIndex = -1;
+                    g_lyricsDisplayWordIndex = -1;
+                    g_lyricsFarDueSoon = false;
                     g_lyricsLastPositionMs = -1;
-                    g_lyricsCache.emplace_back(key, LyricRecord{std::move(found.cues)});
+                    g_lyricsCache.emplace_back(key, LyricRecord{std::move(found.cues), found.unsynced});
                     if (g_lyricsCache.size() > 32) g_lyricsCache.erase(g_lyricsCache.begin());
                     g_lyricsNeedRetry = false;
+                    if (found.unsynced) {
+                        Wh_Log(L"Lyrics: loaded plain text (unsynced display)");
+                    } else {
+                        Wh_Log(L"Lyrics: loaded synchronized lines");
+                    }
                     resultChanged = true;
                 } else {
+                    // Useful Windhawk logging without including private track metadata.
+                    if (found.networkError) {
+                        Wh_Log(L"Lyrics: LRCLIB request failed / rate-limited; retry scheduled");
+                    } else {
+                        Wh_Log(L"Lyrics: no verified match (title/artist/duration/script); unrelated translations rejected");
+                    }
                     g_lyricsNeedRetry = ++g_lyricsFailureCount < 3;
                     g_lyricsNextRetry = std::chrono::steady_clock::now() +
                         std::chrono::seconds(found.networkError ? 45 : 300);
@@ -3310,11 +4269,15 @@ static void LyricsLookupWorker() {
     }
 }
 static void RequestLyricsForTrack(const std::wstring& title, const std::wstring& artist,
-                                  GlobalSystemMediaTransportControlsSession expectedSession = nullptr) {
+                                  GlobalSystemMediaTransportControlsSession expectedSession = nullptr,
+                                  const std::wstring& album = L"", int durationSec = 0) {
     if (!g_settings.showLyrics) return;
     std::unique_lock<std::mutex> sessionGuard(g_sessionMtx);
     if (expectedSession && g_currentSession != expectedSession) return;
-    std::wstring key = title + L"\x1f" + artist;
+    // Include album and duration so a different release cannot reuse cached
+    // lyrics selected for another recording with the same title and artist.
+    std::wstring key = title + L"\x1f" + artist + L"\x1f" + album + L"\x1f" +
+                       std::to_wstring(durationSec);
     bool launch = false;
     {
         std::lock_guard<std::mutex> lk(g_lyricsMutex);
@@ -3322,10 +4285,16 @@ static void RequestLyricsForTrack(const std::wstring& title, const std::wstring&
         g_lyricsKey = key;
         g_lyricsRequestedTitle = title;
         g_lyricsRequestedArtist = artist;
+        g_lyricsRequestedAlbum = album;
+        g_lyricsRequestedDuration = durationSec;
         ++g_lyricsGeneration;
         g_lyricsCurrentIndex = -1;
+        g_lyricsDisplayIndex = -1;
+        g_lyricsDisplayWordIndex = -1;
+        g_lyricsFarDueSoon = false;
         g_lyricsLastPositionMs = -1;
         g_lyricsCues.clear();
+        g_lyricsUnsynced = false;
         g_lyricsPending = false;
         g_lyricsNeedRetry = false;
         g_lyricsFailureCount = 0;
@@ -3334,6 +4303,7 @@ static void RequestLyricsForTrack(const std::wstring& title, const std::wstring&
             for (const auto& entry : g_lyricsCache) {
                 if (entry.first == key) {
                     g_lyricsCues = entry.second.cues;
+                    g_lyricsUnsynced = entry.second.unsynced;
                     cached = true;
                     break;
                 }
@@ -3386,6 +4356,12 @@ static void UpdateLyricsPositionFromSession() {
         winrt::Windows::Foundation::DateTime updated{};
         double rate = 1.0;
         std::chrono::steady_clock::time_point fetched{};
+        // Spotify/browser media sessions can expose metadata without a timeline.
+        // This estimate is intentionally separate from the real GSMTC clock.
+        uint64_t estimatedGeneration = UINT64_MAX;
+        int64_t estimatedPositionMs = 0;
+        std::chrono::steady_clock::time_point estimatedUpdated{};
+        bool estimatedWarningLogged = false;
     };
     // Timer-thread local; reset it before the timer thread is destroyed.
     thread_local TimelineCache cache;
@@ -3420,6 +4396,40 @@ static void UpdateLyricsPositionFromSession() {
         }
     } catch (...) { ms = -1; cache.session = nullptr; }
     else cache = {};
+    // Some Spotify desktop/browser combinations publish the track details but
+    // no usable GSMTC position. Don't silently suppress an otherwise valid
+    // lyric record forever. The fallback is visibly documented as approximate.
+    if (ms < 0 && session && g_settings.lyricsNoTimelineFallback) {
+        uint64_t generation = 0;
+        bool haveLyrics = false;
+        {
+            std::lock_guard<std::mutex> lk(g_lyricsMutex);
+            generation = g_lyricsGeneration;
+            haveLyrics = !g_lyricsCues.empty();
+        }
+        if (cache.estimatedGeneration != generation) {
+            cache.estimatedGeneration = generation;
+            cache.estimatedPositionMs = 0;
+            cache.estimatedUpdated = now;
+            cache.estimatedWarningLogged = false;
+        }
+        if (cache.estimatedUpdated != std::chrono::steady_clock::time_point{}) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - cache.estimatedUpdated).count();
+            if (playing && elapsed > 0 && elapsed < 10000)
+                cache.estimatedPositionMs += elapsed;
+        }
+        cache.estimatedUpdated = now;
+        if (haveLyrics) {
+            ms = std::max<int64_t>(0, cache.estimatedPositionMs + g_settings.lyricsOffsetMs);
+            if (!cache.estimatedWarningLogged) {
+                Wh_Log(L"Lyrics: Windows did not provide track timing; using approximate clock (seek sync unavailable)");
+                cache.estimatedWarningLogged = true;
+            }
+        }
+    } else if (ms >= 0) {
+        cache.estimatedGeneration = UINT64_MAX;
+    }
     bool changed = false;
     {
         std::lock_guard<std::mutex> lk(g_lyricsMutex);
@@ -3441,6 +4451,77 @@ static void UpdateLyricsPositionFromSession() {
             g_lyricsCurrentIndex = newIndex;
             changed = true;
         }
+        // Distinguish a song having LRC cues from a cue actually being displayed.
+        // In a long instrumental gap the previous line should not stay on screen
+        // forever. During the last configured lead time before a new nonempty
+        // cue, return the visualizer to its normal far slot ahead of the words.
+        int displayIndex = newIndex;
+        bool farDueSoon = false;
+        if (ms >= 0 && !g_lyricsCues.empty()) {
+            if (displayIndex >= 0 && g_lyricsCues[displayIndex].text.empty())
+                displayIndex = -1;
+            const int next = newIndex + 1;
+            const bool haveNext = next >= 0 && next < (int)g_lyricsCues.size();
+            const int64_t heldMs = newIndex >= 0 ? ms - g_lyricsCues[newIndex].timeMs : 0;
+            const int64_t nextDistance = haveNext ? g_lyricsCues[next].timeMs - ms : INT64_MAX;
+            // The visualizer's instrumental threshold is not a lyric end time.
+            // Never drop a lyric just because its phrase exceeds 5.2 seconds.
+            // A long-gap limit protects against an old line persisting through
+            // several minutes of instrumental music or beyond the final cue.
+            const bool longGap = !haveNext ||
+                (newIndex >= 0 && g_lyricsCues[next].timeMs - g_lyricsCues[newIndex].timeMs >
+                    (int64_t)g_settings.lyricsHoldMs);
+            if (!g_lyricsUnsynced && playing && newIndex >= 0 && longGap &&
+                heldMs >= g_settings.lyricsHoldMs)
+                displayIndex = -1;
+            // A line that will start shortly may be prepared in advance, but
+            // do not show its text until its own timestamp has arrived.
+            if (!g_lyricsUnsynced && playing && haveNext && !g_lyricsCues[next].text.empty() &&
+                nextDistance > 0 && nextDistance <= g_settings.vizBeforeLyricsMs &&
+                displayIndex == -1)
+                farDueSoon = true;
+            if (!g_lyricsUnsynced && playing && newIndex < 0 && !g_lyricsCues.front().text.empty() &&
+                g_lyricsCues.front().timeMs - ms > 0 &&
+                g_lyricsCues.front().timeMs - ms <= g_settings.vizBeforeLyricsMs)
+                farDueSoon = true;
+        }
+        if (displayIndex != g_lyricsDisplayIndex || farDueSoon != g_lyricsFarDueSoon) {
+            g_lyricsDisplayIndex = displayIndex;
+            g_lyricsFarDueSoon = farDueSoon;
+            g_needsLyricsLayoutUpdate = true;
+            changed = true;
+        }
+        int wordIndex = -1;
+        if (ms >= 0 && displayIndex >= 0 && g_settings.lyricsWordFollow &&
+            !g_lyricsUnsynced) {
+            const auto& cue = g_lyricsCues[displayIndex];
+            const int wordCount = CountLyricWords(cue.text);
+            if (wordCount > 1 && wordCount <= 32) {
+                // Use real enhanced-LRC word times whenever present.
+                if ((int)cue.wordTimesMs.size() == wordCount) {
+                    for (int i = 0; i < wordCount; ++i) {
+                        if (cue.wordTimesMs[i] >= 0 && cue.wordTimesMs[i] <= ms)
+                            wordIndex = i;
+                    }
+                } else if (g_settings.lyricsEstimateWordTiming) {
+                    // Line-only LRC: evenly spaced progress is *approximate*.
+                    // Do not estimate for plain unsynchronized lyrics.
+                    int64_t span = (int64_t)std::max(1800, wordCount * 450);
+                    if (displayIndex + 1 < (int)g_lyricsCues.size()) {
+                        int64_t gap = g_lyricsCues[displayIndex + 1].timeMs - cue.timeMs;
+                        if (gap > 0 && gap <= g_settings.lyricsHoldMs)
+                            span = gap;
+                    }
+                    int64_t elapsed = std::max<int64_t>(0, ms - cue.timeMs);
+                    wordIndex = std::min(wordCount - 1,
+                        (int)(elapsed * wordCount / std::max<int64_t>(1, span)));
+                }
+            }
+        }
+        if (wordIndex != g_lyricsDisplayWordIndex) {
+            g_lyricsDisplayWordIndex = wordIndex;
+            changed = true;
+        }
     }
     if (changed) DispatchLyricsUpdate();
 }
@@ -3452,7 +4533,68 @@ static void UpdateLyricsPositionFromSession() {
 static bool g_lyricsFirstLineActive = true;
 static uint64_t g_lyricsUiGeneration = UINT64_MAX;
 static int g_lyricsUiIndex = -2;
+static int g_lyricsUiWordIndex = -2;
 static std::wstring g_lyricsVisibleText;
+
+// XAML UI-thread only. Reuse the same text elements for each word change,
+// rather than recreating a storyboard or polling the network per word.
+static void ApplyLyricWordColors(const TextBlock& block, int activeWord) {
+    if (!block || !g_settings.lyricsWordFollow) return;
+    try {
+        auto brush = block.Foreground().try_as<SolidColorBrush>();
+        if (!brush) return;
+        auto color = brush.Color();
+        auto used = block.Inlines();
+        SolidColorBrush doneBrush, activeBrush, futureBrush;
+        auto muted = color;
+        muted.A = (uint8_t)std::max(25, (int)color.A * 70 / 100);
+        doneBrush.Color(muted);
+        activeBrush.Color(color);
+        muted.A = (uint8_t)std::max(20, (int)color.A * 42 / 100);
+        futureBrush.Color(muted);
+        for (uint32_t i = 0; i < used.Size(); ++i) {
+            auto run = used.GetAt(i).try_as<winrt::Windows::UI::Xaml::Documents::Run>();
+            if (run) run.Foreground(activeWord < 0 ? activeBrush :
+                                      (int)i < activeWord ? doneBrush :
+                                      (int)i == activeWord ? activeBrush : futureBrush);
+        }
+    } catch (...) {}
+}
+static void SetLyricTextAndRuns(const TextBlock& block, const std::wstring& text,
+                                int activeWord, bool canFollow) {
+    if (!block) return;
+    if (!canFollow || !g_settings.lyricsWordFollow) {
+        block.Inlines().Clear();
+        block.Text(winrt::hstring(text));
+        return;
+    }
+    try {
+    auto collection = block.Inlines();
+    collection.Clear();
+    size_t i = 0;
+    int count = 0;
+    while (i < text.size() && count < 32) {
+        size_t wordBegin = text.find_first_not_of(L" \t\r\n", i);
+        if (wordBegin == std::wstring::npos) break;
+        size_t wordEnd = text.find_first_of(L" \t\r\n", wordBegin);
+        if (wordEnd == std::wstring::npos) wordEnd = text.size();
+        size_t next = text.find_first_not_of(L" \t\r\n", wordEnd);
+        if (next == std::wstring::npos) next = text.size();
+        winrt::Windows::UI::Xaml::Documents::Run run;
+        run.Text(winrt::hstring(text.substr(wordBegin, next - wordBegin)));
+        collection.Append(run);
+        i = next;
+        ++count;
+    }
+    ApplyLyricWordColors(block, activeWord);
+    } catch (...) {
+        // A XAML inline failure must never make the entire lyric view vanish.
+        try {
+            block.Inlines().Clear();
+            block.Text(winrt::hstring(text));
+        } catch (...) {}
+    }
+}
 
 static void ResetLyricsVisuals() {
     try { if (g_lyricsStoryboard) g_lyricsStoryboard.Stop(); } catch (...) {}
@@ -3462,6 +4604,7 @@ static void ResetLyricsVisuals() {
     g_lyricsFirstLineActive = true;
     g_lyricsUiGeneration = UINT64_MAX;
     g_lyricsUiIndex = -2;
+    g_lyricsUiWordIndex = -2;
     g_lyricsVisibleText.clear();
 }
 
@@ -3470,27 +4613,75 @@ static void RefreshLyricsOnlyUi() {
     std::wstring nextLine;
     uint64_t generation = 0;
     int index = -1;
+    int activeWord = -1;
+    bool canFollowWords = false;
+    int originalWordCount = 0;
+    // A media-property update and a lyric worker are asynchronous. Never render
+    // the previous track's lyrics under the new title while either is settling.
+    std::wstring displayedTitle, displayedArtist;
+    {
+        std::lock_guard<std::mutex> lk(g_mediaMtx);
+        displayedTitle = g_media.title;
+        displayedArtist = g_media.artist;
+    }
     {
         std::lock_guard<std::mutex> lk(g_lyricsMutex);
         generation = g_lyricsGeneration;
-        index = g_lyricsCurrentIndex;
-        if (index >= 0 && index < (int)g_lyricsCues.size()) nextLine = g_lyricsCues[index].text;
+        index = g_lyricsDisplayIndex;
+        if (displayedTitle == g_lyricsRequestedTitle &&
+            displayedArtist == g_lyricsRequestedArtist &&
+            index >= 0 && index < (int)g_lyricsCues.size()) {
+            nextLine = g_lyricsCues[index].text;
+            activeWord = g_lyricsDisplayWordIndex;
+            originalWordCount = CountLyricWords(nextLine);
+            canFollowWords = !g_lyricsUnsynced && originalWordCount > 1 &&
+                originalWordCount <= 32 && g_settings.lyricsWordFollow &&
+                ((int)g_lyricsCues[index].wordTimesMs.size() == originalWordCount ||
+                 g_settings.lyricsEstimateWordTiming);
+        } else if (displayedTitle != g_lyricsRequestedTitle ||
+                   displayedArtist != g_lyricsRequestedArtist) {
+            // A mismatch changes the visual identity even before the new
+            // lookup increments the generation counter.
+            index = -1;
+        }
     }
-    if (g_settings.previewLayout) nextLine = L"Your synchronized lyrics appear here";
-    if (generation == g_lyricsUiGeneration && index == g_lyricsUiIndex) return;
-    // Always display supported Indian-script lyrics in Roman letters.
-    // Do not depend on a setting left disabled by an earlier mod version.
-    if (LyricsHasIndicScript(nextLine))
+    if (g_settings.previewLayout) {
+        nextLine = L"Your synchronized lyrics appear here";
+        canFollowWords = false;
+        activeWord = -1;
+    }
+    // Normalize before the unchanged-line check. In Romanized mode, checking
+    // raw native-script text would trigger a full XAML line animation every
+    // 100 ms even though the displayed line had not changed.
+    nextLine.erase(std::remove_if(nextLine.begin(), nextLine.end(), [](wchar_t ch) {
+        return ch == 0xFEFF || ch == 0x200E || ch == 0x200F ||
+               (ch >= 0x202A && ch <= 0x202E) || (ch >= 0x2066 && ch <= 0x2069);
+    }), nextLine.end());
+    if (g_settings.hindiLyricsScript == L"roman" && LyricsHasIndicScript(nextLine))
         nextLine = LyricsRomanizeIndic(nextLine);
+    if (CountLyricWords(nextLine) != originalWordCount) canFollowWords = false;
+    if (generation == g_lyricsUiGeneration && index == g_lyricsUiIndex &&
+        nextLine == g_lyricsVisibleText) {
+        if (g_lyricsUiWordIndex != activeWord) {
+            g_lyricsUiWordIndex = activeWord;
+            auto current = g_lyricsFirstLineActive ? g_lyricsLineA : g_lyricsLineB;
+            ApplyLyricWordColors(current, activeWord);
+        }
+        return;
+    }
     const bool songChanged = (generation != g_lyricsUiGeneration);
     g_lyricsUiGeneration = generation;
     g_lyricsUiIndex = index;
-    // Handle tracks, playback seeking, missing lyrics, or repeated identical lyric lines.
-    if (nextLine == g_lyricsVisibleText) return;
+    g_lyricsUiWordIndex = activeWord;
+    // Identical text on a different cue/track may still have new word timing.
+    // The generation and cue index are intentionally checked above. 
     bool hadLine = !g_lyricsVisibleText.empty();
     // Changing song should never animate the previous track's lyric into the next one.
     if (songChanged) hadLine = false;
     g_lyricsVisibleText = nextLine;
+    if (hadLine && !nextLine.empty() && !songChanged &&
+        g_settings.canvasEnabled && g_settings.canvasMotionPulseOnLyrics)
+        PulseCanvasMotionArtwork();
     try {
         if (g_lyricsStoryboard) g_lyricsStoryboard.Stop();
         g_lyricsStoryboard = nullptr;
@@ -3501,7 +4692,7 @@ static void RefreshLyricsOnlyUi() {
             g_lyricsLineA.Opacity(0.0);
             g_lyricsLineB.Opacity(0.0);
         }
-        arriving.Text(winrt::hstring(nextLine));
+        SetLyricTextAndRuns(arriving, nextLine, activeWord, canFollowWords);
         arriving.Opacity(nextLine.empty() ? 0.0 : 1.0);
         // Set *settled* base values; storyboards animate From -> To over them.
         // When a storyboard is stopped/replaced, old lines must not flash back.
@@ -3583,6 +4774,9 @@ static AlbumPalette g_cachedAlbumPalette = {
     winrt::Windows::UI::Color{255, 45, 45, 45}
 };
 static size_t g_cachedPaletteHash = 0;
+static AlbumPalette g_songColorFrom = g_cachedAlbumPalette;
+static std::chrono::steady_clock::time_point g_songColorTransitionAt{};
+static bool g_songColorTransitionActive = false;
 static winrt::Windows::UI::Color g_cachedVizBaseColor{255, 255, 255, 255};
 static bool g_vizBaseColorDirty = true;
 static winrt::Windows::UI::Color g_cachedVizPal0{255, 255, 255, 255};
@@ -5397,7 +6591,17 @@ static void FetchMediaPropertiesOnce(uint64_t requestId) {
                 if (forceIconRefresh) g_userSwitchedSession = false;
                 sessionCommit.unlock();
                 if (g_settings.showLyrics) {
-                    RequestLyricsForTrack(std::wstring(props.Title()), std::wstring(props.Artist()), session);
+                    int durationSec = 0;
+                    try {
+                        auto timeInfo = session.GetTimelineProperties();
+                        if (timeInfo) {
+                            auto sec = std::chrono::duration_cast<std::chrono::seconds>(
+                                timeInfo.EndTime()).count();
+                            if (sec > 0 && sec <= 3600) durationSec = (int)sec;
+                        }
+                    } catch (...) {}
+                    RequestLyricsForTrack(std::wstring(props.Title()), std::wstring(props.Artist()),
+                                          session, std::wstring(props.AlbumTitle()), durationSec);
                 }
             } catch (...) {
             }
@@ -5927,6 +7131,7 @@ static void DispatchMediaUpdate() {
     }
 }
 static void RefreshPlayerContents();
+static void RefreshCompactMissingLyricsLayout();
 static void UpdateVisibility();
 static void RefreshThemeColors();
 static void RemovePlayerGrid();
@@ -5992,6 +7197,7 @@ static DWORD WINAPI TimerThreadProc(void*) {
         const auto now = std::chrono::steady_clock::now();
         const bool needsUpdate = g_needsUiUpdate.exchange(false);
         const bool lyricsUpdate = g_needsLyricsUiUpdate.exchange(false);
+        const bool lyricsLayout = g_needsLyricsLayoutUpdate.exchange(false);
         bool checkVisibility = now >= nextVisibilityCheck || needsUpdate;
         if (now >= nextPowerCheck) {
             SYSTEM_POWER_STATUS status{};
@@ -6007,12 +7213,18 @@ static DWORD WINAPI TimerThreadProc(void*) {
         if (g_hiddenByIdle.exchange(idleHidden) != idleHidden) checkVisibility = true;
         if (checkVisibility) nextVisibilityCheck = now + std::chrono::seconds(1);
         if (needsUpdate || lyricsUpdate || checkVisibility) {
-            struct Update { bool contents, lyrics, visibility; } update{needsUpdate, lyricsUpdate, checkVisibility};
+            struct Update { bool contents, lyrics, visibility, lyricLayout; }
+                update{needsUpdate, lyricsUpdate, checkVisibility, lyricsLayout};
             RunFromWindowThread(hWnd, [](void* param) {
                 const auto& u = *static_cast<Update*>(param);
                 if (g_unloading || g_applyingSettings || !g_playerGrid) return;
                 if (u.contents) RefreshPlayerContents();
-                else if (u.lyrics) RefreshLyricsOnlyUi();
+                else if (u.lyrics) {
+                    RefreshLyricsOnlyUi();
+                    // Pure word-color updates should never cause taskbar
+                    // re-layout. Only line/visibility transitions need this.
+                    if (u.lyricLayout) RefreshCompactMissingLyricsLayout();
+                }
                 if (u.visibility) UpdateVisibility();
             }, &update);
         }
@@ -6022,8 +7234,13 @@ static DWORD WINAPI TimerThreadProc(void*) {
     return 0;
 }
 static constexpr int VIZ_BARS_MAX = 20;
-static constexpr int VIZ_FFT_SIZE = 1024;
-static constexpr int VIZ_NUM_BANDS = 7;
+// 2048 samples gives ~23 Hz frequency resolution at 48 kHz while keeping
+// the window ~43 ms; a 512-sample hop updates the spectrum ~every 11 ms.
+static constexpr int VIZ_FFT_SIZE = 2048;
+static constexpr int VIZ_FFT_HOP = VIZ_FFT_SIZE / 4;
+// Extra internal frequency bands improve beat and instrument discrimination
+// even when the user keeps the original seven on-screen bars.
+static constexpr int VIZ_NUM_BANDS = 13;
 static constexpr float VIZ_PI = 3.14159265f;
 static std::atomic<float> g_VizBands[VIZ_NUM_BANDS] = {};
 static std::atomic<bool> g_CaptureRunning{false};
@@ -6095,7 +7312,8 @@ static void BuildTwiddleFactors() {
 }
 static void BuildLogBins(UINT32 sampleRate) {
     static constexpr float FREQ_EDGES[VIZ_NUM_BANDS + 1] = {
-        20.f, 120.f, 300.f, 800.f, 2500.f, 6000.f, 14000.f, 20000.f};
+        20.f, 55.f, 95.f, 150.f, 240.f, 370.f, 560.f,
+        850.f, 1350.f, 2200.f, 3500.f, 5600.f, 9000.f, 18000.f};
     for (int b = 0; b <= VIZ_NUM_BANDS; b++) {
         int bin = (int)(FREQ_EDGES[b] * VIZ_FFT_SIZE / (float)sampleRate);
         g_LogBinStart[b] = std::max(1, std::min(VIZ_FFT_SIZE / 2 - 1, bin));
@@ -6211,9 +7429,9 @@ static void VizCaptureThreadProc() {
     int ringHead = 0, ringCount = 0;
     std::vector<float> re(VIZ_FFT_SIZE), im(VIZ_FFT_SIZE);
     float bandEnv[VIZ_NUM_BANDS] = {};
-    static constexpr float GRAVITY[VIZ_NUM_BANDS] = {0.018f, 0.020f, 0.022f, 0.025f,
-                                                    0.030f, 0.036f, 0.042f};
     ULONGLONG lastReinitAttempt = GetTickCount64() - 1000;
+    ULONGLONG lastPacketMs = GetTickCount64();
+    ULONGLONG lastIdleUpdateMs = lastPacketMs;
     while (g_CaptureRunning.load(std::memory_order_relaxed)) {
         if (g_hCaptureEvent)
             WaitForSingleObject(g_hCaptureEvent, 20);
@@ -6229,6 +7447,7 @@ static void VizCaptureThreadProc() {
                     pClient->Stop();
                 ringHead = 0;
                 ringCount = 0;
+                lastPacketMs = lastIdleUpdateMs = now;
                 for (int b = 0; b < VIZ_NUM_BANDS; b++) {
                     bandEnv[b] = 0.f;
                     g_VizBands[b].store(0.f, std::memory_order_relaxed);
@@ -6247,12 +7466,24 @@ static void VizCaptureThreadProc() {
             continue;
         }
         if (FAILED(hr) || packetSize == 0) {
-            for (int b = 0; b < VIZ_NUM_BANDS; b++) {
-                bandEnv[b] = std::max(0.f, bandEnv[b] - GRAVITY[b]);
-                g_VizBands[b].store(bandEnv[b], std::memory_order_relaxed);
+            // No packets should mean falling towards silence, not a frozen
+            // visualizer. Decay by elapsed time, not by the number of wakes.
+            ULONGLONG nowMs = GetTickCount64();
+            float elapsed = std::min(100.f, (float)(nowMs - lastIdleUpdateMs)) / 1000.f;
+            lastIdleUpdateMs = nowMs;
+            if (nowMs - lastPacketMs >= 35) {
+                const float releaseSeconds = (g_settings.vizResponseMode == L"smooth")
+                    ? 0.150f : (g_settings.vizResponseMode == L"balanced" ? 0.105f : 0.072f);
+                const float release = expf(-elapsed / releaseSeconds);
+                for (int b = 0; b < VIZ_NUM_BANDS; ++b) {
+                    bandEnv[b] *= release;
+                    if (bandEnv[b] < 0.001f) bandEnv[b] = 0.f;
+                    g_VizBands[b].store(bandEnv[b], std::memory_order_relaxed);
+                }
             }
             continue;
         }
+        lastPacketMs = lastIdleUpdateMs = GetTickCount64();
         while (packetSize > 0) {
             BYTE* pData = nullptr;
             UINT32 numFrames = 0;
@@ -6265,7 +7496,15 @@ static void VizCaptureThreadProc() {
             }
             if (FAILED(hrBuf))
                 break;
-            if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && pData && numFrames > 0) {
+            // WASAPI silent packets have duration: feed zeros into the FFT
+            // ring or the previous music window can persist indefinitely.
+            if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) || !pData) {
+                for (UINT32 f = 0; f < numFrames; ++f) {
+                    ringBuf[ringHead] = 0.f;
+                    ringHead = (ringHead + 1) % RING_CAP;
+                    if (ringCount < RING_CAP) ++ringCount;
+                }
+            } else if (numFrames > 0) {
                 if (isFloat) {
                     float* src = reinterpret_cast<float*>(pData);
                     for (UINT32 f = 0; f < numFrames; f++) {
@@ -6305,7 +7544,7 @@ static void VizCaptureThreadProc() {
                 re[i] = ringBuf[(readStart + i) % RING_CAP] * g_HannWindow[i];
                 im[i] = 0.f;
             }
-            ringCount -= VIZ_FFT_SIZE / 2;
+            ringCount -= VIZ_FFT_HOP;
             VizFFT(re, im);
             float t_sens = g_settings.vizSensitivity / 100.0f;
             float sliderGain = (t_sens <= 1.0f)
@@ -6313,29 +7552,43 @@ static void VizCaptureThreadProc() {
                 : 3.0f + (t_sens - 1.0f) * 4.0f;
             auto eq = GetVizEQMultipliers(g_settings.vizEq);
             static constexpr float BAND_SENSITIVITY[VIZ_NUM_BANDS] = {
-                0.30f, 0.22f, 0.12f, 0.06f, 0.030f, 0.018f, 0.010f};
-            static constexpr int BAND_EQ_ZONE[VIZ_NUM_BANDS] = {0, 0, 1, 1, 2, 2, 2};
+                0.30f, 0.27f, 0.23f, 0.19f, 0.15f, 0.11f, 0.085f,
+                0.065f, 0.047f, 0.034f, 0.025f, 0.018f, 0.012f};
+            const float hopSeconds = (float)VIZ_FFT_HOP / (float)std::max(1u, sampleRate);
+            // One audio-side envelope is enough for stable measured energy.
+            // The UI uses only a very short interpolation for visible motion.
+            const float attackSeconds = (g_settings.vizResponseMode == L"smooth")
+                ? 0.022f : (g_settings.vizResponseMode == L"balanced" ? 0.012f : 0.005f);
+            const float releaseSeconds = (g_settings.vizResponseMode == L"smooth")
+                ? 0.150f : (g_settings.vizResponseMode == L"balanced" ? 0.105f : 0.072f);
+            const float attackK = 1.f - expf(-hopSeconds / attackSeconds);
+            const float releaseK = 1.f - expf(-hopSeconds / releaseSeconds);
             for (int b = 0; b < VIZ_NUM_BANDS; b++) {
                 int bStart = g_LogBinStart[b];
                 int bEnd = g_LogBinStart[b + 1];
                 if (bEnd <= bStart)
                     bEnd = bStart + 1;
                 float sumSq = 0.f;
+                float bandPeak = 0.f;
                 int count = 0;
-                for (int k = bStart; k < bEnd; k++) {
-                    sumSq += re[k] * re[k] + im[k] * im[k];
-                    count++;
+                for (int k = bStart; k < bEnd && k < VIZ_FFT_SIZE / 2; ++k) {
+                    float power = re[k] * re[k] + im[k] * im[k];
+                    sumSq += power;
+                    bandPeak = std::max(bandPeak, power);
+                    ++count;
                 }
-                float rms = (count > 0) ? sqrtf(sumSq / (float)count) : 0.f;
-                float eqM = (BAND_EQ_ZONE[b] == 0)   ? eq.low
-                            : (BAND_EQ_ZONE[b] == 1) ? eq.mid
-                                                    : eq.high;
+                const float rms = count > 0 ? sqrtf(sumSq / (float)count) : 0.f;
+                // A little emphasis on narrow transient peaks, without
+                // reacting solely to a single noisy frequency bin.
+                const float energy = 0.82f * rms + 0.18f * sqrtf(bandPeak);
+                const float eqM = b < 4 ? eq.low : (b < 9 ? eq.mid : eq.high);
                 float mag = std::max(
-                    0.f, std::min(1.f, (rms / (VIZ_FFT_SIZE * 0.5f)) /
+                    0.f, std::min(1.f, (energy / (VIZ_FFT_SIZE * 0.5f)) /
                                         BAND_SENSITIVITY[b] * sliderGain * eqM));
-                bandEnv[b] = (mag >= bandEnv[b])
-                                ? mag
-                                : std::max(0.f, bandEnv[b] - GRAVITY[b]);
+                // Release and attack are expressed in seconds, independent of
+                // hardware packet sizes and callback scheduling.
+                float k = mag > bandEnv[b] ? attackK : releaseK;
+                bandEnv[b] += (mag - bandEnv[b]) * k;
                 g_VizBands[b].store(bandEnv[b], std::memory_order_relaxed);
             }
         }
@@ -6379,6 +7632,11 @@ static void StopVizCaptureThread() {
 static float g_VizPeak[VIZ_BARS_MAX] = {};
 static float g_VizTarget[VIZ_BARS_MAX] = {};
 static float g_VizBreatheEnv = 0.f;
+static bool VizPreviewWithoutPlayback() {
+    if (g_settings.vizPreviewMode == L"off" || !g_settings.vizEnabled) return false;
+    std::lock_guard<std::mutex> lock(g_mediaMtx);
+    return !g_media.isPlaying; // Paused and no-session preview, never override live audio.
+}
 static constexpr float VIZ_SEEDS[VIZ_BARS_MAX] = {
     0.83f, 0.41f, 1.27f, 0.61f, 1.09f, 0.37f, 0.95f, 0.52f, 1.18f, 0.74f,
     0.29f, 1.03f, 0.66f, 0.88f, 0.45f, 1.21f, 0.57f, 0.93f, 0.31f, 1.15f};
@@ -6386,33 +7644,82 @@ static void UpdateVisualizerPeaks() {
     const int vizBars = std::max(1, std::min(g_settings.vizBars, VIZ_BARS_MAX));
     float bands[VIZ_NUM_BANDS];
     float masterPeak = 0.f;
+    const bool simulation = VizPreviewWithoutPlayback();
+    // UI-only low-cost test signal; never routed through WASAPI and never used
+    // when a real music session is currently playing.
+    const float t = std::chrono::duration<float>(
+        std::chrono::steady_clock::now() - g_vizPreviewEpoch).count();
+    const float beat = simulation ? powf(std::max(0.f, cosf(t * 6.3f)), 5.f) : 0.f;
     for (int i = 0; i < VIZ_NUM_BANDS; i++) {
-        bands[i] = g_VizBands[i].load(std::memory_order_relaxed);
+        if (simulation) {
+            float wave = 0.28f + 0.26f * sinf(t * (2.4f + i * 0.18f) + i * 0.62f);
+            bands[i] = std::clamp((beat * (0.65f - i * 0.023f) + wave) *
+                                   (g_settings.vizPreviewStrength / 100.f), 0.f, 1.f);
+        } else bands[i] = g_VizBands[i].load(std::memory_order_relaxed);
         masterPeak = std::max(masterPeak, bands[i]);
     }
-    auto eq = GetVizEQMultipliers(g_settings.vizEq);
+    // One bar must represent the WHOLE spectrum, not just its middle!
+    // Divide 20 Hz..18 kHz into N logarithmically sized contiguous groups.
+    // Integrate overlap with our 13 measured bands, not 1-2 point samples.
+    // Recompute mapping only when the user changes the number of bars.
+    static int lastMappedCount = 0;
+    static float groupWeights[VIZ_BARS_MAX][VIZ_NUM_BANDS] = {};
+    if (lastMappedCount != vizBars) {
+        static constexpr float edges[VIZ_NUM_BANDS + 1] = {
+            20.f, 55.f, 95.f, 150.f, 240.f, 370.f, 560.f,
+            850.f, 1350.f, 2200.f, 3500.f, 5600.f, 9000.f, 18000.f};
+        constexpr float lo = 20.f, hi = 18000.f;
+        const float logRange = logf(hi / lo);
+        for (int bar = 0; bar < vizBars; ++bar) {
+            const float groupLo = logf(lo) + logRange * (float)bar / (float)vizBars;
+            const float groupHi = logf(lo) + logRange * (float)(bar + 1) / (float)vizBars;
+            float total = 0.f;
+            for (int b = 0; b < VIZ_NUM_BANDS; ++b) {
+                float left = std::max(groupLo, logf(edges[b]));
+                float right = std::min(groupHi, logf(edges[b + 1]));
+                float w = std::max(0.f, right - left);
+                groupWeights[bar][b] = w;
+                total += w;
+            }
+            if (total > 0.f)
+                for (int b = 0; b < VIZ_NUM_BANDS; ++b)
+                    groupWeights[bar][b] /= total;
+        }
+        lastMappedCount = vizBars;
+    }
+    float spectrum[VIZ_BARS_MAX] = {};
+    for (int bar = 0; bar < vizBars; ++bar) {
+        float power = 0.f, localPeak = 0.f;
+        for (int b = 0; b < VIZ_NUM_BANDS; ++b) {
+            const float w = groupWeights[bar][b];
+            if (w <= 0.f) continue;
+            const float v = std::clamp(bands[b], 0.f, 1.f);
+            power += w * v * v;
+            localPeak = std::max(localPeak, v);
+        }
+        // RMS + transient peak: continuous accurate band energy, with drums
+        // still visible in wide groups such as 1 or 2 bars.
+        spectrum[bar] = std::clamp(0.78f * sqrtf(power) + 0.22f * localPeak,
+                                   0.f, 1.f);
+    }
     auto sampleBands = [&](float t) -> float {
-        float pos = t * (VIZ_NUM_BANDS - 1);
-        int lo = (int)pos;
-        int hi = std::min(lo + 1, VIZ_NUM_BANDS - 1);
-        return bands[lo] * (1.f - (pos - (float)lo)) +
-            bands[hi] * (pos - (float)lo);
+        const float pos = std::clamp(t, 0.f, 1.f) * (float)(vizBars - 1);
+        const int low = (int)pos;
+        const int high = std::min(low + 1, vizBars - 1);
+        return spectrum[low] * (1.f - (pos - low)) +
+               spectrum[high] * (pos - low);
     };
-    auto eqForT = [&](float t) -> float {
-        return (t < 0.33f) ? eq.low : (t < 0.66f) ? eq.mid : eq.high;
-    };
-    float t = (float)GetTickCount64() * 0.001f;
     float center = (vizBars - 1) * 0.5f;
     for (int i = 0; i < vizBars; i++) {
         float freqT = (vizBars > 1) ? (float)i / (float)(vizBars - 1) : 0.5f;
         float target = 0.f;
         switch (g_settings.vizShape) {
             case VizShape::Stereo:
-                target = sampleBands(freqT) * eqForT(freqT);
+                target = sampleBands(freqT);
                 break;
             case VizShape::Mountain: {
                 float dist = fabsf((float)i - center) / std::max(1.f, center);
-                float energy = sampleBands(dist) * eqForT(dist);
+                float energy = sampleBands(dist);
                 float taper = 1.6f - dist * 0.9f;
                 target = std::max(
                     0.f, std::min(1.f, (energy + masterPeak * (0.2f - dist * 0.12f)) *
@@ -6421,29 +7728,30 @@ static void UpdateVisualizerPeaks() {
             }
             case VizShape::Mirror: {
                 float mirT = 1.f - fabsf((float)i - center) / std::max(1.f, center);
-                float energy = sampleBands(mirT) * eqForT(mirT);
+                float energy = sampleBands(mirT);
                 target = std::max(
                     0.f, std::min(1.f, (energy + masterPeak * (0.1f + mirT * 0.12f)) *
                                         1.3f));
                 break;
             }
             case VizShape::Wave: {
-                float phase = (float)i * (2.f * VIZ_PI / (float)vizBars);
-                float wave = 0.55f + 0.45f * sinf(t * 3.5f - phase);
-                float energy = sampleBands(freqT) * eqForT(freqT);
-                target = std::max(0.f, std::min(1.f, energy * wave + masterPeak * 0.15f));
+                // Shape follows changing adjacent frequency energy instead
+                // of using a free-running sine oscillator unrelated to music.
+                float energy = sampleBands(freqT);
+                float neighbor = sampleBands(std::min(1.f, freqT + 0.08f));
+                target = std::clamp(0.75f * energy + 0.25f * neighbor, 0.f, 1.f);
                 break;
             }
             case VizShape::Breathe: {
                 if (i == 0) {
-                    float k = (masterPeak > g_VizBreatheEnv) ? 0.04f : 0.015f;
+                    // Breathing is a *smoothed* music amplitude, not an
+                    // autonomous animation that continues during silence.
+                    float k = masterPeak > g_VizBreatheEnv ? 0.30f : 0.11f;
                     g_VizBreatheEnv += (masterPeak - g_VizBreatheEnv) * k;
                 }
-                float rate = 0.55f + VIZ_SEEDS[i % VIZ_BARS_MAX] * 0.18f;
-                float inhale =
-                    0.5f + 0.5f * sinf(t * rate + VIZ_SEEDS[i % VIZ_BARS_MAX] * 1.2f);
-                target = std::max(0.f, std::min(1.f,
-                                                inhale * (0.12f + g_VizBreatheEnv * 0.88f)));
+                target = std::clamp(g_VizBreatheEnv *
+                                    (0.85f + 0.15f * VIZ_SEEDS[i % VIZ_BARS_MAX]),
+                                    0.f, 1.f);
                 break;
             }
         }
@@ -6474,6 +7782,17 @@ static winrt::Windows::UI::Color VizEnsureContrast(winrt::Windows::UI::Color c) 
     float tintAmount = 0.65f + t * 0.35f;
     return VizLerpColor(base, c, tintAmount);
 }
+// A dedicated setting overrides just the quiet-bar height. -1 keeps the
+// original two-number Bar size setting byte-for-byte compatible in behavior.
+// In legacy mode, second value 0 has always meant fully hidden at silence.
+static double VizQuietBarHeight(double usableHeight) {
+    if (g_settings.vizRestingHeight >= 0)
+        return std::clamp((double)g_settings.vizRestingHeight, 0.0, usableHeight);
+    if (g_settings.vizIdleBarSize == 0)
+        return 0.0;
+    return std::clamp((double)g_settings.vizBarWidth +
+                      (double)g_settings.vizIdleBarSize, 0.0, usableHeight);
+}
 static double VizZoneHeight() {
     double h = 0.0;
     if (g_settings.showAlbumArt && g_settings.albumArtMaxHeight > 0)
@@ -6490,22 +7809,30 @@ static void VizApplyFrame() {
     if (!g_settings.vizEnabled || g_vizBars->empty())
         return;
     UpdateVisualizerPeaks();
-    float attack = 0.55f, decay = 0.18f;
-    float sensBoost = std::max(0.f, (g_settings.vizSensitivity - 100) / 200.f) * 0.12f;
-    switch (g_settings.vizShape) {
-        case VizShape::Stereo:  attack = 0.72f; decay = 0.22f + sensBoost; break;
-        case VizShape::Mirror:  attack = 0.52f; decay = 0.20f + sensBoost; break;
-        case VizShape::Wave:    attack = 0.34f; decay = 0.17f + sensBoost; break;
-        case VizShape::Breathe: attack = 0.20f; decay = 0.11f + sensBoost; break;
-        default:                decay += sensBoost; break;
+    // Consistent response at 30/60/120 Hz or during temporary Explorer lag.
+    static auto lastFrame = std::chrono::steady_clock::now();
+    const auto frameNow = std::chrono::steady_clock::now();
+    float dt = std::clamp(std::chrono::duration<float>(frameNow - lastFrame).count(),
+                          0.001f, 0.100f);
+    lastFrame = frameNow;
+    float attackSeconds = 0.006f, decaySeconds = 0.032f;
+    if (g_settings.vizResponseMode == L"balanced") {
+        attackSeconds = 0.012f; decaySeconds = 0.052f;
+    } else if (g_settings.vizResponseMode == L"smooth") {
+        attackSeconds = 0.024f; decaySeconds = 0.090f;
     }
+    // Artistic Breathe retains its deliberately gentler visual response.
+    if (g_settings.vizShape == VizShape::Breathe) {
+        attackSeconds *= 2.5f;
+        decaySeconds *= 1.8f;
+    }
+    const float attack = 1.f - expf(-dt / attackSeconds);
+    const float decay  = 1.f - expf(-dt / decaySeconds);
     int barCount = std::min((int)g_vizBars->size(), std::max(1, g_settings.vizBars));
     double zoneH = VizZoneHeight();
     double maxBH = std::max(4.0, zoneH - 6.0);
-    double minBH = (double)g_settings.vizBarWidth;
-    double idlePx = std::min((double)g_settings.vizIdleBarSize, std::max(0.0, maxBH - minBH));
-    double range = std::max(0.0, maxBH - minBH - idlePx);
-    bool idleHidden = (g_settings.vizIdleBarSize == 0);
+    const double restBH = VizQuietBarHeight(maxBH);
+    const double range = std::max(0.0, maxBH - restBH);
     winrt::Windows::UI::Color baseCol{255, 255, 255, 255};
     if (g_settings.vizColorMode == VizColorMode::DynamicAlbum) {
         if (g_vizBaseColorDirty || g_vizPaletteColorsDirty) {
@@ -6528,26 +7855,33 @@ static void VizApplyFrame() {
         g_vizPaletteColorsDirty = false;
         g_vizBaseColorDirty = false;
     }
-    const auto& pal0   = g_cachedVizPal0;
-    const auto& pal1   = g_cachedVizPal1;
+    auto pal0 = g_cachedVizPal0;
+    auto pal1 = g_cachedVizPal1;
+    if (g_songColorTransitionActive && g_settings.songChangeEnabled &&
+        g_settings.songChangeVizColor) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            frameNow - g_songColorTransitionAt).count();
+        double t = std::clamp((double)elapsed / std::max(1, g_settings.songChangeDurationMs), 0.0, 1.0);
+        // Ease in/out for gentle color blending without per-frame palette extraction.
+        t = t * t * (3.0 - 2.0 * t);
+        auto old0 = VizEnsureContrast(g_songColorFrom.primary);
+        auto old1 = VizEnsureContrast(g_songColorFrom.secondary);
+        pal0 = VizLerpColor(old0, pal0, (float)t);
+        pal1 = VizLerpColor(old1, pal1, (float)t);
+        if (g_settings.vizColorMode == VizColorMode::DynamicAlbum)
+            baseCol = VizLerpColor(old0, baseCol, (float)t);
+        if (elapsed >= g_settings.songChangeDurationMs) g_songColorTransitionActive = false;
+    }
     const auto& cg0    = g_cachedVizCg0;
     const auto& cg1    = g_cachedVizCg1;
     const auto& acrCol = g_cachedVizAcrCol;
     for (int i = 0; i < barCount; i++) {
         float tgt = g_VizTarget[i], cur = g_VizPeak[i];
         float a = attack, d = decay;
-        if (g_settings.vizShape == VizShape::Mountain) {
-            float dist = fabsf((float)i - ((barCount - 1) * 0.5f));
-            if (dist < 0.5f)      { a = 0.85f; d = 0.26f + sensBoost; }
-            else if (dist < 1.5f) { a = 0.62f; d = 0.20f + sensBoost; }
-            else                  { a = 0.92f; d = 0.34f + sensBoost; }
-        }
         float next = cur + (tgt - cur) * ((tgt > cur) ? a : d);
         g_VizPeak[i] = (fabsf(next - cur) > 0.0005f) ? next : tgt;
         float fac = std::max(0.f, g_VizPeak[i]);
-        double bh = idleHidden
-            ? (fac * maxBH)
-            : (minBH + idlePx + fac * range);
+        const double bh = restBH + fac * range;
         winrt::Windows::UI::Color c = baseCol;
         if (g_settings.vizColorMode == VizColorMode::DynamicGradient) {
             float t = (float)i / std::max(1, barCount - 1);
@@ -6561,9 +7895,22 @@ static void VizApplyFrame() {
             c = winrt::Windows::UI::Color{aa, acrCol.R, acrCol.G, acrCol.B};
         }
         try {
-            (*g_vizBars)[i].Height(bh);
-            if (i < (int)g_vizBrushes->size() && (*g_vizBrushes)[i])
-                (*g_vizBrushes)[i].Color(c);
+            auto const& rect = (*g_vizBars)[i];
+            if (fabs(rect.Height() - bh) >= 0.12) rect.Height(bh);
+            // Radius cannot be bigger than HALF the shorter side; this makes
+            // both tips true semicircular caps even for tiny / idle sticks.
+            const double rounding = (double)g_settings.vizRoundness / 100.0;
+            const double cap = 0.5 * std::min((double)g_settings.vizBarWidth, bh) * rounding;
+            if (fabs(rect.RadiusX() - cap) >= 0.02) {
+                rect.RadiusX(cap);
+                rect.RadiusY(cap);
+            }
+            if (i < (int)g_vizBrushes->size() && (*g_vizBrushes)[i]) {
+                auto brush = (*g_vizBrushes)[i];
+                auto was = brush.Color();
+                if (was.A != c.A || was.R != c.R || was.G != c.G || was.B != c.B)
+                    brush.Color(c);
+            }
         } catch (...) {}
     }
 }
@@ -6575,6 +7922,14 @@ static void VizTimerTick(winrt::Windows::Foundation::IInspectable const&,
     if (g_unloading || g_applyingSettings) return;
     if (!g_settings.vizEnabled) return;
     VizApplyFrame();
+    if (g_settings.vizPreviewMode == L"cycle" && VizPreviewWithoutPlayback()) {
+        static auto nextCheck = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= nextCheck) {
+            nextCheck = now + std::chrono::milliseconds(180);
+            RefreshCompactMissingLyricsLayout();
+        }
+    }
 }
 static void StartVizTimer() {
     HWND hWnd = g_taskbarWnd;
@@ -6583,11 +7938,13 @@ static void StartVizTimer() {
         try {
             if (!g_vizDispatcherTimer) {
                 g_vizDispatcherTimer = winrt::Windows::UI::Xaml::DispatcherTimer();
-                g_vizDispatcherTimer.Interval(
-                    winrt::Windows::Foundation::TimeSpan{std::chrono::milliseconds(16)});
                 g_vizDispatcherTimerToken = g_vizDispatcherTimer.Tick(&VizTimerTick);
                 g_vizDispatcherTimerHasToken = true;
             }
+            // Even an existing timer must pick up a changed 30/60 FPS setting.
+            const int intervalMs = (g_settings.vizFrameRate == L"30") ? 33 : 16;
+            g_vizDispatcherTimer.Interval(
+                winrt::Windows::Foundation::TimeSpan{std::chrono::milliseconds(intervalMs)});
             g_vizDispatcherTimer.Start();
         } catch (...) {}
     }, nullptr);
@@ -6629,17 +7986,16 @@ static FrameworkElement BuildVisualizerElement() {
     VerticalAlignment va = (g_settings.vizAnchor == VizAnchor::Top)    ? VerticalAlignment::Top
                         : (g_settings.vizAnchor == VizAnchor::Bottom) ? VerticalAlignment::Bottom
                                                             : VerticalAlignment::Center;
-    double minBH = (double)g_settings.vizBarWidth;
-    double maxBH = std::max(4.0, zoneH - 6.0);
-    double idlePx = std::min((double)g_settings.vizIdleBarSize, std::max(0.0, maxBH - minBH));
-    double corner = g_settings.vizBarWidth * 0.5;
-    bool idleHidden = (g_settings.vizIdleBarSize == 0);
+    const double maxBH = std::max(4.0, zoneH - 6.0);
+    const double restBH = VizQuietBarHeight(maxBH);
+    const double corner = g_settings.vizBarWidth * (g_settings.vizRoundness / 200.0);
     for (int i = 0; i < barCount; i++) {
         VizRect r;
         r.Width((double)g_settings.vizBarWidth);
-        r.Height(idleHidden ? 0.0 : (minBH + idlePx));
-        r.RadiusX(corner);
-        r.RadiusY(corner);
+        r.Height(restBH);
+        const double initialCap = std::min(corner, 0.5 * restBH);
+        r.RadiusX(initialCap);
+        r.RadiusY(initialCap);
         r.VerticalAlignment(va);
         if (i > 0)
             r.Margin({(double)g_settings.vizBarGap, 0, 0, 0});
@@ -6655,15 +8011,23 @@ static FrameworkElement BuildVisualizerElement() {
     }
     bool vizLeft = (g_settings.vizPosition == L"left");
     if (g_settings.mirrorLayout) vizLeft = !vizLeft;
-    const double kVizSectionGap = 6.0;
-    double marginL = (double)g_settings.vizPadLeft  + (vizLeft ? 0.0 : kVizSectionGap);
-    double marginR = (double)g_settings.vizPadRight + (vizLeft ? kVizSectionGap : 0.0);
+    const double sectionGap = (double)g_settings.vizSectionGap;
+    // Positive horizontal adjustment adds space to the left; negative adds it
+    // to the right. This reserves width instead of drawing across other icons.
+    double marginL = (double)g_settings.vizPadLeft + (vizLeft ? 0.0 : sectionGap) +
+                     (double)std::max(0, g_settings.vizHorizontalOffset);
+    double marginR = (double)g_settings.vizPadRight + (vizLeft ? sectionGap : 0.0) +
+                     (double)std::max(0, -g_settings.vizHorizontalOffset);
     Grid vizContainer;
     vizContainer.Name(L"FluentMedia_Visualizer");
     vizContainer.Height(zoneH);
     vizContainer.VerticalAlignment(VerticalAlignment::Center);
     vizContainer.HorizontalAlignment(HorizontalAlignment::Center);
     vizContainer.IsHitTestVisible(false);
+    TranslateTransform vizVerticalShift;
+    // This does not change the height or width of any of the other controls.
+    vizVerticalShift.Y((double)g_settings.vizVerticalOffset);
+    vizContainer.RenderTransform(vizVerticalShift);
     vizContainer.Background(MakeBrush({0x00, 0x00, 0x00, 0x00}));
     vizContainer.Margin({marginL, 0, marginR, 0});
     if (g_settings.showDebugBorders) {
@@ -6716,6 +8080,10 @@ static void RefreshThemeColors() {
     try {
         if (g_lyricsLineA) g_lyricsLineA.Foreground(MakeBrush(TextColor()));
         if (g_lyricsLineB) g_lyricsLineB.Foreground(MakeBrush(TextColor()));
+        if (g_settings.lyricsWordFollow && g_lyricsUiWordIndex >= 0) {
+            auto active = g_lyricsFirstLineActive ? g_lyricsLineA : g_lyricsLineB;
+            ApplyLyricWordColors(active, g_lyricsUiWordIndex);
+        }
     } catch (...) {}
     if (g_settings.lyricsOnly) {
         try {
@@ -9316,6 +10684,10 @@ static Grid BuildPlayerGrid() {
         catch (...) { Wh_Log(L"BuildLyricsOnlyPlayerGrid: construction failed"); return nullptr; }
     }
     ResetLyricsVisuals();
+    g_vizNormalColumn = -1;
+    g_compactNoLyricsActive = false;
+    try { if (g_vizDockStoryboard) g_vizDockStoryboard.Stop(); } catch (...) {}
+    g_vizDockStoryboard = nullptr;
     try {
         g_vizBars->clear();
         g_vizBrushes->clear();
@@ -9402,7 +10774,8 @@ static Grid BuildPlayerGrid() {
             panel.ColumnDefinitions().Append(col);
         }
         Grid artContainer{nullptr};
-        if (g_settings.showAlbumArt) {
+        StackPanel artVizDock{nullptr};
+        if (g_settings.showAlbumArt || g_settings.canvasEnabled) {
             int iconSz = g_settings.appIconSize;
             artContainer = Grid();
             artContainer.VerticalAlignment(VerticalAlignment::Center);
@@ -9542,6 +10915,9 @@ static Grid BuildPlayerGrid() {
                         : (double)g_settings.pauseOverlayIconSize);
                 playback.Content(MakeIconText(GetGlyph(2, false), iconSize, {0xFF, 0xFF, 0xFF, 0xFF}));
                 playback.IsEnabled(false); // Enabled by the current media session's capabilities.
+                // Keep the cover visible while idle. A fully transparent Button stays
+                // hit-testable so playback continues to work on click/touch.
+                playback.Opacity(0.0);
                 Automation::AutomationProperties::SetName(playback, L"Play");
                 ToolTipService::SetToolTip(playback, winrt::box_value(L"Play"));
                 BindArtworkPlayback(playback);
@@ -9567,6 +10943,27 @@ static Grid BuildPlayerGrid() {
                 pauseBorder.Child(pauseIcon);
                 artInnerGrid.Children().Append(pauseBorder);
             }
+            // Artwork overlays are mouse-hover-only; this also applies to the
+            // legacy pause indicator when the cover playback button is disabled.
+            g_albumArtworkHovered = false;
+            artContainer.PointerEntered([weakArt = winrt::make_weak(artContainer)](auto const&, auto const&) {
+                g_albumArtworkHovered = true;
+                if (auto art = weakArt.get()) {
+                    if (auto playback = FindChildByName(art, L"FluentMedia_ArtPlaybackButton"))
+                        playback.Opacity(1.0);
+                    if (auto paused = FindChildByName(art, L"PauseIconOverlay"))
+                        paused.Visibility(!g_albumArtworkPlaying ? Visibility::Visible : Visibility::Collapsed);
+                }
+            });
+            artContainer.PointerExited([weakArt = winrt::make_weak(artContainer)](auto const&, auto const&) {
+                g_albumArtworkHovered = false;
+                if (auto art = weakArt.get()) {
+                    if (auto playback = FindChildByName(art, L"FluentMedia_ArtPlaybackButton"))
+                        playback.Opacity(0.0);
+                    if (auto paused = FindChildByName(art, L"PauseIconOverlay"))
+                        paused.Visibility(Visibility::Collapsed);
+                }
+            });
             if (DoubleClickEnabled(L"album_art") && !g_settings.albumArtPlaybackButton) BindDoubleTap(artContainer);
             if (g_settings.disableAlbumArtClick && !g_settings.albumArtPlaybackButton && !DoubleClickEnabled(L"album_art")) {
                 artContainer.IsHitTestVisible(false);
@@ -9664,12 +11061,159 @@ static Grid BuildPlayerGrid() {
                 });
             }
             artContainer.Tag(winrt::box_value(winrt::hstring(L"FluentMediaArtContainer")));
-            if (albumArtLeft) {
-                Grid::SetColumn(artContainer, 0);
-            } else {
-                Grid::SetColumn(artContainer, 4);
+            g_canvasArtwork = artContainer;  // Fallback is always real album art.
+            artVizDock = StackPanel();
+            artVizDock.Name(L"FluentMedia_AlbumVizDock");
+            artVizDock.Orientation(Orientation::Horizontal);
+            artVizDock.VerticalAlignment(VerticalAlignment::Center);
+            artVizDock.HorizontalAlignment(albumArtLeft ? HorizontalAlignment::Left
+                                                          : HorizontalAlignment::Right);
+            // Always keep artwork and visualizer distinct, even when the user
+            // sets the separate neighbor-gap setting to zero.
+            artVizDock.Spacing(3.0);
+            artVizDock.Children().Append(artContainer);
+            Grid::SetColumn(artVizDock, albumArtLeft ? 0 : 4);
+            panel.Children().Append(artVizDock);
+        }
+        // Optional native video tile. Never replace or reparent the album cover.
+        // The dock also exists when artwork is disabled so video-only layouts work.
+        if (g_settings.canvasEnabled) {
+            if (!artVizDock) {
+                artVizDock = StackPanel();
+                artVizDock.Name(L"FluentMedia_AlbumVizDock");
+                artVizDock.Orientation(Orientation::Horizontal);
+                artVizDock.VerticalAlignment(VerticalAlignment::Center);
+                artVizDock.HorizontalAlignment(albumArtLeft ? HorizontalAlignment::Left : HorizontalAlignment::Right);
+                artVizDock.Spacing(3.0);
+                Grid::SetColumn(artVizDock, albumArtLeft ? 0 : 4);
+                panel.Children().Append(artVizDock);
             }
-            panel.Children().Append(artContainer);
+            Grid videoTile;
+            videoTile.Name(L"FluentMedia_CanvasTile");
+            const double videoW = (double)(g_settings.canvasFollowArtSize ?
+                std::clamp(g_settings.albumArtMaxWidth, 12, 96) : g_settings.canvasWidth);
+            const double videoH = (double)(g_settings.canvasFollowArtSize ?
+                std::clamp(g_settings.albumArtMaxHeight, 12, 96) : g_settings.canvasHeight);
+            // Geometry is corrected from the measured taskbar and native aspect ratio
+            // after MediaOpened; do not guess a video's width from its filename.
+            videoTile.Width(videoW);
+            videoTile.Height(videoH);
+            videoTile.VerticalAlignment(VerticalAlignment::Center);
+            videoTile.Visibility(Visibility::Collapsed); // No placeholder: missing video = no tile.
+            videoTile.Opacity((g_settings.canvasMatchArtStyle ?
+                g_settings.albumArtOpacity : g_settings.canvasOpacity) / 100.0);
+            videoTile.IsHitTestVisible(false);
+            const double extraLeft = (double)g_settings.canvasExtraGap +
+                (double)std::max(0, g_settings.canvasHorizontalSpace);
+            const double extraRight = (double)std::max(0, -g_settings.canvasHorizontalSpace);
+            // Reserve the gap in layout; don't translate over lyrics or Windows icons.
+            const double toLyrics = (double)g_settings.canvasGapToLyrics;
+            videoTile.Margin({extraLeft + (albumArtLeft ? 0.0 : toLyrics),
+                              (double)std::max(0, g_settings.canvasVerticalOffset),
+                              extraRight + (albumArtLeft ? toLyrics : 0.0),
+                              (double)std::max(0, -g_settings.canvasVerticalOffset)});
+            Border videoFrame;
+            if (g_settings.canvasMatchArtStyle) {
+                videoFrame.CornerRadius(CornerRadius{
+                    g_settings.albumArtCornerRadiusTL, g_settings.albumArtCornerRadiusTR,
+                    g_settings.albumArtCornerRadiusBR, g_settings.albumArtCornerRadiusBL});
+            } else {
+                videoFrame.CornerRadius(CornerRadius{
+                    (double)g_settings.canvasRadius, (double)g_settings.canvasRadius,
+                    (double)g_settings.canvasRadius, (double)g_settings.canvasRadius});
+            }
+            videoFrame.HorizontalAlignment(HorizontalAlignment::Stretch);
+            videoFrame.VerticalAlignment(VerticalAlignment::Stretch);
+            MediaElement video;
+            video.Name(L"FluentMedia_CanvasVideo");
+            video.AutoPlay(false);
+            video.IsLooping(true);
+            video.IsMuted(true);
+            video.Volume(0.0);
+            video.Stretch(g_settings.canvasScaling == L"fit" ? Stretch::Uniform : Stretch::UniformToFill);
+            video.AreTransportControlsEnabled(false);
+            video.IsHitTestVisible(false);
+            video.MediaOpened([](auto const&, auto const&) {
+                if (g_unloading || !g_canvasTile || !g_canvasMedia || g_canvasCurrentPath.empty() ||
+                    g_canvasCurrentPath == g_canvasBadPath) return;
+                try {
+                    // Windows MediaElement ignores Play() before MediaOpened.
+                    if (g_canvasMedia.IsAudioOnly()) {
+                        g_canvasBadPath = g_canvasCurrentPath;
+                        g_canvasVideoReady = false;
+                        UpdateCanvasFallbackVisibility();
+                        Wh_Log(L"Canvas: MP4 has no video stream; using album artwork");
+                        return;
+                    }
+                    g_canvasVideoReady = true;
+                    UpdateCanvasVideoGeometry();
+                    const bool preview = g_settings.canvasPreviewWithoutMusic &&
+                        (g_settings.canvasSourceMode == L"fixed" ||
+                         g_settings.canvasSourceMode == L"online_canvas" ||
+                         g_settings.canvasSourceMode == L"online_official");
+                    const bool startNow = (g_albumArtworkPlaying ||
+                        g_settings.canvasPlayWhenPaused || preview) &&
+                        g_playerGrid && g_playerGrid.Visibility() == Visibility::Visible &&
+                        !(g_settings.canvasPauseOnBattery && ReduceMotionForPower());
+                    if (startNow) {
+                        g_canvasMedia.Play();
+                        g_canvasCurrentlyPlaying = true;
+                    }
+                    // Keep artwork visible until the video has opened.
+                    UpdateCanvasFallbackVisibility();
+                    if (g_canvasJustChanged && g_settings.songChangeEnabled &&
+                        g_settings.songChangeCanvas) AnimateSongChangeElement(g_canvasTile);
+                    g_canvasJustChanged = false;
+                } catch (...) {
+                    g_canvasVideoReady = false;
+                    UpdateCanvasFallbackVisibility();
+                }
+            });
+            video.MediaFailed([](auto const&, auto const&) {
+                // Never leave a blank video slot after a failed decoder open.
+                g_canvasBadPath = g_canvasCurrentPath;
+                g_canvasVideoReady = false;
+                g_canvasCurrentlyPlaying = false;
+                g_canvasJustChanged = false;
+                try { if (g_canvasMedia) g_canvasMedia.Stop(); } catch (...) {}
+                UpdateCanvasFallbackVisibility();
+                Wh_Log(L"Canvas: video source failed (local or HTTPS); using album artwork");
+            });
+            // Two mutually exclusive layers: authorized video or the automatic
+            // media-session artwork. The animated tile costs no MP4 decoder.
+            Grid visualLayers;
+            Controls::Image motionImage;
+            motionImage.Name(L"FluentMedia_CanvasMotionArtwork");
+            motionImage.Stretch(Stretch::UniformToFill);
+            motionImage.HorizontalAlignment(HorizontalAlignment::Stretch);
+            motionImage.VerticalAlignment(VerticalAlignment::Stretch);
+            motionImage.RenderTransformOrigin({0.5, 0.5});
+            ScaleTransform motionScale;
+            motionImage.RenderTransform(motionScale);
+            motionImage.Visibility(Visibility::Collapsed);
+            motionImage.IsHitTestVisible(false);
+            visualLayers.Children().Append(motionImage);
+            video.Visibility(Visibility::Collapsed);
+            visualLayers.Children().Append(video);
+            videoFrame.Child(visualLayers);
+            videoTile.Children().Append(videoFrame);
+            // Zoom must not paint on top of taskbar buttons or lyrics.
+            auto videoClip = RectangleGeometry();
+            videoTile.Clip(videoClip);
+            videoTile.SizeChanged([videoClip](auto const& sender, auto const&) {
+                try {
+                    if (auto element = sender.template try_as<FrameworkElement>())
+                        videoClip.Rect({0, 0, (float)element.ActualWidth(),
+                                       (float)element.ActualHeight()});
+                } catch (...) {}
+            });
+            g_canvasMotionImage = motionImage;
+            if (g_settings.canvasPosition == L"before")
+                artVizDock.Children().InsertAt(0, videoTile);
+            else
+                artVizDock.Children().Append(videoTile);
+            g_canvasMedia = video;
+            g_canvasTile = videoTile;
         }
         if (g_settings.showTrackTitle || g_settings.showTrackArtist) {
             Border textContainer;
@@ -9695,6 +11239,23 @@ static Grid BuildPlayerGrid() {
             double leftMargin = (double)g_settings.textAreaLeftMargin;
             double rightMargin = (double)g_settings.textAreaRightMargin;
             textContainer.Margin({leftMargin, 0, rightMargin, 0});
+            // A scrolling TextBlock lives on a Canvas and can paint outside its
+            // allocated column. Clip the entire text border so it cannot paint
+            // over lyrics, the second artwork tile, or taskbar buttons.
+            auto textClip = RectangleGeometry();
+            // Make the text visible on the first frame, before SizeChanged.
+            // The real allocated bounds replace this after XAML layout.
+            textClip.Rect({0.f, 0.f,
+                (float)std::max(1, g_settings.textAreaMaxWidth),
+                (float)std::max(18, g_settings.textAreaMaxHeight)});
+            textContainer.Clip(textClip);
+            textContainer.SizeChanged([textClip](auto const&, SizeChangedEventArgs const& e) {
+                try {
+                    textClip.Rect({0.f, 0.f,
+                        (float)std::max(0.0f, e.NewSize().Width),
+                        (float)std::max(0.0f, e.NewSize().Height)});
+                } catch (...) {}
+            });
             if (g_settings.showDebugBorders) {
                 textContainer.BorderBrush(MakeBrush({0xFF, 0x00, 0xFF, 0xFF}));
                 textContainer.BorderThickness({1,1,1,1});
@@ -9996,7 +11557,10 @@ static Grid BuildPlayerGrid() {
             auto lyrics = BuildLyricsOnlyPlayerGrid();
             lyrics.Name(L"FluentLyrics_Embedded");
             TranslateTransform lyricOffset;
-            lyricOffset.X(g_settings.lyricsHorizontalOffset);
+            // Keep the embedded lyric inside its own allocated column unless
+            // the user explicitly opts into free-position/overlapping offsets.
+            lyricOffset.X(g_settings.lyricsAvoidOverlap ? 0.0 :
+                          (double)g_settings.lyricsHorizontalOffset);
             lyricOffset.Y(g_settings.lyricsVerticalOffset);
             lyrics.RenderTransform(lyricOffset);
             lyrics.Children().RemoveAt(0); // The outer player already owns the background.
@@ -10020,6 +11584,8 @@ static Grid BuildPlayerGrid() {
             try {
                 auto vizEl = BuildVisualizerElement();
                 if (vizEl) {
+                    // The visualizer has an explicit, interruptible XAML storyboard
+                    // for dock changes. Don't add RepositionThemeTransition too.
                     bool left = (g_settings.vizPosition == L"left");
                     if (g_settings.mirrorLayout) left = !left;
                     ColumnDefinition vcol;
@@ -10037,6 +11603,11 @@ static Grid BuildPlayerGrid() {
                         Grid::SetColumn(vizEl, (int)panel.ColumnDefinitions().Size() - 1);
                     }
                     panel.Children().Append(vizEl);
+                    // Normal lyrics-present placement stays in its own column.
+                    // Missing-lyrics placement re-parents into the horizontal
+                    // album-art dock below, preserving measured widths.
+                    if (artVizDock)
+                        g_vizNormalColumn = Grid::GetColumn(vizEl);
                 }
             } catch (...) {
                 Wh_Log(L"BuildPlayerGrid: Exception adding inline visualizer");
@@ -10906,7 +12477,41 @@ static bool InjectPlayerGrid() {
         return false;
     }
 }
+// Song-change animation cleanup is defined with the animation helpers below.
+// These declarations must precede RemovePlayerGrid, which uses both symbols.
+static std::wstring g_lastAnimatedTrack;
+static void StopSongChangeAnimations();
+
 static void RemovePlayerGrid() {
+    // Release decoder and source before tearing down taskbar XAML.
+    try {
+        if (g_canvasMedia) {
+            g_canvasMedia.Stop();
+            g_canvasMedia.Source(winrt::Windows::Foundation::Uri{nullptr});
+        }
+    } catch (...) {}
+    g_canvasCurrentPath.clear();
+    g_canvasCurrentlyPlaying = false;
+    g_canvasJustChanged = false;
+    g_canvasBadPath.clear();
+    g_canvasLookupKey.clear();
+    g_canvasLastFoundFile.clear();
+    g_canvasLastLookup = {};
+    try { if (g_canvasMotionStoryboard) g_canvasMotionStoryboard.Stop(); } catch (...) {}
+    try { if (g_canvasMotionPulseStoryboard) g_canvasMotionPulseStoryboard.Stop(); } catch (...) {}
+    g_canvasMotionStoryboard = nullptr;
+    g_canvasMotionPulseStoryboard = nullptr;
+    g_canvasMotionImage = nullptr;
+    g_canvasMotionAnimating = false;
+    g_canvasMotionTrackKey.clear();
+    g_canvasMedia = nullptr;
+    g_canvasTile = nullptr;
+    g_canvasArtwork = nullptr;
+    g_canvasVideoReady = false;
+    StopSongChangeAnimations();
+    g_lastAnimatedTrack.clear();
+    try { if (g_vizDockStoryboard) g_vizDockStoryboard.Stop(); } catch (...) {}
+    g_vizDockStoryboard = nullptr;
     CancelStartupRetry();
     for (auto& cleanup : g_uiCleanup) { try { cleanup(); } catch (...) {} }
     g_uiCleanup.clear();
@@ -11026,6 +12631,667 @@ static void RemovePlayerGrid() {
         g_miniPlayerSessionListSepRef = nullptr;
     }
 }
+// Smooth, monotone interpolation; none of these presets overshoots the
+// destination or briefly crosses back into the album artwork.
+static EasingFunctionBase MakeVizDockEase(const std::wstring& preset) {
+    if (preset == L"linear") return nullptr;
+    if (preset == L"silky" || preset == L"feather") {
+        SineEase ease;
+        ease.EasingMode(preset == L"feather" ? EasingMode::EaseOut : EasingMode::EaseInOut);
+        return ease;
+    }
+    if (preset == L"gentle" || preset == L"buildup") {
+        QuadraticEase ease;
+        ease.EasingMode(preset == L"buildup" ? EasingMode::EaseIn : EasingMode::EaseInOut);
+        return ease;
+    }
+    if (preset == L"dramatic") {
+        QuinticEase ease;
+        ease.EasingMode(EasingMode::EaseInOut);
+        return ease;
+    }
+    if (preset == L"powerful") {
+        QuarticEase ease;
+        ease.EasingMode(EasingMode::EaseInOut);
+        return ease;
+    }
+    if (preset == L"arc") {
+        CircleEase ease;
+        ease.EasingMode(EasingMode::EaseInOut);
+        return ease;
+    }
+    if (preset == L"glide") {
+        QuadraticEase ease;
+        ease.EasingMode(EasingMode::EaseOut);
+        return ease;
+    }
+    CubicEase ease;
+    ease.EasingMode(preset == L"quick" ? EasingMode::EaseOut : EasingMode::EaseInOut);
+    return ease;
+}
+
+// Lightweight song-change animations. These affect presentation only, never
+// media playback, layout measurements, or the existing visualizer dock movement.
+[[clang::no_destroy]] static std::vector<Storyboard> g_songChangeStoryboards;
+static void StopSongChangeAnimations() {
+    for (auto& sb : g_songChangeStoryboards) {
+        try { if (sb) sb.Stop(); } catch (...) {}
+    }
+    g_songChangeStoryboards.clear();
+}
+static void AnimateSongChangeElement(FrameworkElement element) {
+    if (!element || !g_settings.songChangeEnabled ||
+        g_settings.songChangePreset == L"instant" || ReduceMotionForPower()) return;
+    try {
+        const auto& style = g_settings.songChangePreset;
+        const double distance = (double)g_settings.songChangeTravel;
+        const double startOpacity = g_settings.songChangeStartOpacity / 100.0;
+        const auto duration = DurationHelper::FromTimeSpan(
+            std::chrono::milliseconds(g_settings.songChangeDurationMs));
+        auto ease = MakeVizDockEase(g_settings.songChangeEase);
+        CompositeTransform transform;
+        element.RenderTransform(transform);
+        element.RenderTransformOrigin({0.5, 0.5});
+        Storyboard sb;
+        auto animate = [&](DependencyObject target, const wchar_t* property,
+                           double from, double to) {
+            if (fabs(from - to) < 0.0001) return;
+            DoubleAnimation a;
+            a.From(from);
+            a.To(to);
+            a.Duration(duration);
+            if (ease) a.EasingFunction(ease);
+            Storyboard::SetTarget(a, target);
+            Storyboard::SetTargetProperty(a, property);
+            sb.Children().Append(a);
+        };
+        animate(element, L"Opacity", startOpacity, 1.0);
+        double x = 0, y = 0, scale = 1.0;
+        if (style == L"cinematic") { y = distance * 0.50; scale = 0.93; }
+        else if (style == L"slide_left") x = -distance;
+        else if (style == L"slide_right") x = distance;
+        else if (style == L"slide_up") y = distance;
+        else if (style == L"slide_down") y = -distance;
+        else if (style == L"zoom") scale = 0.86;
+        else if (style == L"float") { y = distance * 0.7; scale = 0.97; }
+        else if (style == L"pop") { scale = 0.76; }
+        else if (style == L"soft_pulse") { scale = 0.90; }
+        else if (style == L"glide") { x = -distance * 1.2; scale = 0.97; }
+        else if (style == L"drop") { y = -distance * 1.2; scale = 0.96; }
+        else if (style == L"drift") { x = distance * 0.6; y = distance * 0.4; }
+        if (style != L"fade") {
+            animate(transform, L"TranslateX", x, 0.0);
+            animate(transform, L"TranslateY", y, 0.0);
+            animate(transform, L"ScaleX", scale, 1.0);
+            animate(transform, L"ScaleY", scale, 1.0);
+        }
+        if (sb.Children().Size()) {
+            sb.Begin();
+            g_songChangeStoryboards.push_back(sb);
+        }
+    } catch (...) {
+        // Animation failure must never hide content or affect playback.
+        try { element.Opacity(1.0); element.RenderTransform(nullptr); } catch (...) {}
+        Wh_Log(L"Song-change animation failed, restored normal appearance");
+    }
+}
+// Spotify does not expose Canvas URLs through its public API. These helpers
+// accept only explicit authorized HTTPS MP4 streams, not YouTube page URLs.
+static std::wstring CanvasTrim(std::wstring s) {
+    const auto start = s.find_first_not_of(L" \t\r\n");
+    if (start == std::wstring::npos) return {};
+    const auto end = s.find_last_not_of(L" \t\r\n");
+    return s.substr(start, end - start + 1);
+}
+static std::wstring CanvasFold(std::wstring s) {
+    s = CanvasTrim(std::move(s));
+    for (auto& c : s) c = (wchar_t)towlower(c);
+    return s;
+}
+static bool CanvasValidOnlineMp4(const std::wstring& value) {
+    if (value.size() < 15 || value.size() > 2048 || value.compare(0, 8, L"https://") != 0)
+        return false;
+    if (value.find_first_of(L" \t\r\n<>") != std::wstring::npos ||
+        value.find(static_cast<wchar_t>(34)) != std::wstring::npos ||
+        value.find(static_cast<wchar_t>(39)) != std::wstring::npos ||
+        value.find(static_cast<wchar_t>(92)) != std::wstring::npos) return false;
+    const size_t hostEnd = value.find_first_of(L"/?#", 8);
+    if (hostEnd == 8 || hostEnd == std::wstring::npos || value[hostEnd] != L'/') return false;
+    const size_t query = value.find_first_of(L"?#", hostEnd);
+    const std::wstring path = CanvasFold(value.substr(hostEnd, query == std::wstring::npos ?
+        std::wstring::npos : query-hostEnd));
+    return path.size() >= 4 && path.substr(path.size()-4) == L".mp4";
+}
+static std::wstring CanvasOnlineTrackFor(const std::wstring& title, const std::wstring& artist) {
+    if (title.empty() || artist.empty()) return {};
+    const std::wstring& entries = g_settings.canvasOnlineTrackUrls;
+    size_t begin = 0;
+    for (int count=0; count<32 && begin<entries.size(); ++count) {
+        const size_t end = entries.find(L';', begin);
+        const auto part = entries.substr(begin, end == std::wstring::npos ?
+            std::wstring::npos : end-begin);
+        const auto a = part.find(L'|');
+        const auto b = a == std::wstring::npos ? std::wstring::npos : part.find(L'|',a+1);
+        if (a != std::wstring::npos && b != std::wstring::npos &&
+            CanvasFold(part.substr(0,a)) == CanvasFold(artist) &&
+            CanvasFold(part.substr(a+1,b-a-1)) == CanvasFold(title)) {
+            auto url = CanvasTrim(part.substr(b+1));
+            return CanvasValidOnlineMp4(url) ? url : std::wstring{};
+        }
+        if (end == std::wstring::npos) break;
+        begin=end+1;
+    }
+    return {};
+}
+static std::wstring CanvasExpandPath(const std::wstring& input) {
+    if (input.empty()) return {};
+    wchar_t buf[4096]{};
+    DWORD n = ExpandEnvironmentStringsW(input.c_str(), buf, ARRAYSIZE(buf));
+    if (!n || n > ARRAYSIZE(buf)) return {};
+    return std::wstring(buf);
+}
+static std::wstring CanvasSafeName(std::wstring name) {
+    for (auto& ch : name) {
+        if (ch < 32 || wcschr(L"<>:\"/\\|?*", ch)) ch = L'_';
+    }
+    while (!name.empty() && (name.back() == L' ' || name.back() == L'.')) name.pop_back();
+    if (name.size() > 120) name.resize(120);
+    return name;
+}
+static bool CanvasLocalFileExists(const std::wstring& path) {
+    if (path.empty() || path.size() > 2048) return false;
+    // Require a local absolute drive path, not HTTP or a remote UNC share.
+    if (!(path.size() >= 3 && iswalpha(path[0]) && path[1] == L':' &&
+          (path[2] == L'\\' || path[2] == L'/'))) return false;
+    const auto i = path.find_last_of(L'.');
+    if (i == std::wstring::npos || _wcsicmp(path.c_str() + i, L".mp4") != 0) return false;
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+static std::wstring CanvasFindForTrack(const std::wstring& title, const std::wstring& artist,
+                                       bool hasSession) {
+    if (!g_settings.canvasEnabled) return {};
+    if (g_settings.canvasSourceMode == L"auto_art") return {};
+    if (g_settings.canvasSourceMode == L"online_canvas") {
+        auto url = CanvasTrim(g_settings.canvasOnlineCanvasUrl);
+        return CanvasValidOnlineMp4(url) ? url : L"";
+    }
+    if (g_settings.canvasSourceMode == L"online_official") {
+        auto url = CanvasTrim(g_settings.canvasOnlineOfficialUrl);
+        return CanvasValidOnlineMp4(url) ? url : L"";
+    }
+    if (g_settings.canvasSourceMode == L"online_track")
+        return hasSession ? CanvasOnlineTrackFor(title, artist) : std::wstring{};
+    if (g_settings.canvasSourceMode == L"fixed") {
+        auto fixed = CanvasExpandPath(g_settings.canvasFixedFile);
+        return CanvasLocalFileExists(fixed) ? fixed : L"";
+    }
+    if (!hasSession || title.empty() || artist.empty()) return {};
+    auto folder = CanvasExpandPath(g_settings.canvasFolder);
+    if (folder.empty()) return {};
+    if (folder.back() != L'\\' && folder.back() != L'/') folder += L'\\';
+    const std::wstring file = folder + CanvasSafeName(artist) + L" - " +
+                              CanvasSafeName(title) + L".mp4";
+    return CanvasLocalFileExists(file) ? file : L"";
+}
+static std::wstring CanvasFileUri(const std::wstring& path) {
+    // Local URI escaping; HTTPS sources bypass this conversion unchanged.
+    std::wstring uri = L"file:///";
+    for (auto ch : path) {
+        if (ch == L'\\') uri += L'/';
+        else if (ch == L' ') uri += L"%20";
+        else if (ch == L'#') uri += L"%23";
+        else if (ch == L'%') uri += L"%25";
+        else if (ch == L'?') uri += L"%3F";
+        else uri += ch;
+    }
+    return uri;
+}
+// Native media dimensions become available only after a successful MediaOpened.
+// Height follows the actual taskbar host, never the entire desktop viewport.
+static void UpdateCanvasVideoGeometry() {
+    if (!g_canvasTile || !g_canvasMedia) return;
+    try {
+        double height = (double)(g_settings.canvasFollowArtSize ?
+            std::clamp(g_settings.albumArtMaxHeight, 12, 96) : g_settings.canvasHeight);
+        if (g_settings.canvasFullTaskbarHeight) {
+            double measured = g_injectionParent ? g_injectionParent.ActualHeight() : 0.0;
+            if (!(measured >= 18.0 && measured <= 120.0))
+                measured = g_playerGrid ? g_playerGrid.ActualHeight() : 0.0;
+            if (measured >= 18.0 && measured <= 120.0) height = measured;
+        }
+        height = std::clamp(height - (double)g_settings.canvasHeightInset, 12.0, 120.0);
+        double width = (double)(g_settings.canvasFollowArtSize ?
+            std::clamp(g_settings.albumArtMaxWidth, 12, 96) : g_settings.canvasWidth);
+        if (g_settings.canvasAutoAspectRatio && !g_canvasVideoReady && g_canvasMotionImage &&
+            g_canvasMotionImage.Source()) {
+            if (auto bmp = g_canvasMotionImage.Source().try_as<BitmapImage>()) {
+                const int iw = bmp.PixelWidth(), ih = bmp.PixelHeight();
+                if (iw > 0 && ih > 0)
+                    width = std::clamp(height * (double)iw / (double)ih,
+                                       12.0, (double)g_settings.canvasMaxAutoWidth);
+            }
+        }
+        if (g_settings.canvasAutoAspectRatio && g_canvasVideoReady) {
+            const auto naturalW = g_canvasMedia.NaturalVideoWidth();
+            const auto naturalH = g_canvasMedia.NaturalVideoHeight();
+            if (naturalW > 0 && naturalH > 0) {
+                width = height * (double)naturalW / (double)naturalH;
+                width = std::clamp(width, 12.0, (double)g_settings.canvasMaxAutoWidth);
+            }
+        }
+        if (fabs(g_canvasTile.Height()-height)>0.5) g_canvasTile.Height(height);
+        if (fabs(g_canvasTile.Width()-width)>0.5) g_canvasTile.Width(width);
+    } catch (...) {
+        // A geometry issue must not prevent album-art fallback or normal controls.
+    }
+}
+// Only reuse Windows media artwork: no undocumented Spotify or YouTube endpoints.
+// This runs on the taskbar UI thread. Storyboards are paused when playback stops.
+static void StopCanvasMotion() {
+    try { if (g_canvasMotionStoryboard) g_canvasMotionStoryboard.Stop(); } catch (...) {}
+    try { if (g_canvasMotionPulseStoryboard) g_canvasMotionPulseStoryboard.Stop(); } catch (...) {}
+    g_canvasMotionStoryboard = nullptr;
+    g_canvasMotionPulseStoryboard = nullptr;
+    g_canvasMotionAnimating = false;
+    try {
+        if (g_canvasMotionImage) {
+            g_canvasMotionImage.Opacity(1.0);
+            if (auto scale = g_canvasMotionImage.RenderTransform().try_as<ScaleTransform>()) {
+                scale.ScaleX(1.0); scale.ScaleY(1.0);
+            }
+        }
+    } catch (...) {}
+}
+static bool CanvasUseMotionArtwork() {
+    return g_settings.canvasEnabled && g_settings.canvasMotionFallback &&
+        !g_canvasVideoReady && g_canvasMotionImage && g_canvasMotionImage.Source() &&
+        !(g_settings.canvasPauseOnBattery && ReduceMotionForPower());
+}
+static void StartCanvasMotionIfNeeded(bool playing) {
+    if (!CanvasUseMotionArtwork() || !g_canvasTile ||
+        (!playing && !g_settings.canvasPlayWhenPaused) ||
+        !g_playerGrid || g_playerGrid.Visibility() != Visibility::Visible ||
+        g_settings.canvasMotionPreset == L"still" ||
+        g_settings.canvasMotionPreset == L"lyric_pulse" ||
+        g_settings.canvasMotionZoomPercent <= 0) {
+        if (g_canvasMotionAnimating) StopCanvasMotion();
+        return;
+    }
+    if (g_canvasMotionAnimating) return;
+    try {
+        auto image = g_canvasMotionImage;
+        Storyboard sb;
+        const double zoom = g_settings.canvasMotionZoomPercent / 100.0;
+        const int duration = g_settings.canvasMotionPreset == L"breathe" ?
+            std::max(1500, g_settings.canvasMotionDurationMs / 2) :
+            g_settings.canvasMotionDurationMs;
+        for (const auto* prop : {
+                L"(UIElement.RenderTransform).(ScaleTransform.ScaleX)",
+                L"(UIElement.RenderTransform).(ScaleTransform.ScaleY)"}) {
+            DoubleAnimation a;
+            a.From(1.0); a.To(1.0 + zoom);
+            a.Duration(DurationHelper::FromTimeSpan(std::chrono::milliseconds(duration)));
+            a.AutoReverse(true);
+            winrt::Windows::UI::Xaml::Media::Animation::RepeatBehavior repeat{};
+            repeat.Type = winrt::Windows::UI::Xaml::Media::Animation::RepeatBehaviorType::Forever;
+            a.RepeatBehavior(repeat);
+            Storyboard::SetTarget(a, image);
+            Storyboard::SetTargetProperty(a, prop);
+            sb.Children().Append(a);
+        }
+        g_canvasMotionStoryboard = sb;
+        sb.Begin();
+        g_canvasMotionAnimating = true;
+    } catch (...) {
+        StopCanvasMotion();
+        Wh_Log(L"Motion artwork animation unavailable; retaining static artwork");
+    }
+}
+static void PulseCanvasMotionArtwork() {
+    if (!CanvasUseMotionArtwork() || !g_canvasMotionImage ||
+        !g_settings.canvasMotionPulseOnLyrics ||
+        (g_settings.canvasPauseOnBattery && ReduceMotionForPower())) return;
+    try {
+        if (g_canvasMotionPulseStoryboard) g_canvasMotionPulseStoryboard.Stop();
+        Storyboard sb;
+        DoubleAnimation a;
+        a.From(0.78); a.To(1.0);
+        a.Duration(DurationHelper::FromTimeSpan(std::chrono::milliseconds(340)));
+        Storyboard::SetTarget(a, g_canvasMotionImage);
+        Storyboard::SetTargetProperty(a, L"Opacity");
+        sb.Children().Append(a);
+        g_canvasMotionPulseStoryboard = sb;
+        sb.Begin();
+    } catch (...) {}
+}
+static void SyncCanvasMotionArtwork(const std::wstring& title, const std::wstring& artist,
+                                    bool hasSession, bool playing) {
+    if (!g_settings.canvasEnabled || !g_canvasMotionImage || !g_playerGrid) return;
+    try {
+        const auto key = hasSession ? title + L"\x1f" + artist : std::wstring{};
+        if (g_canvasMotionTrackKey != key) {
+            StopCanvasMotion();
+            g_canvasMotionTrackKey = key;
+        }
+        auto art = FindChildByName(g_playerGrid, L"FluentMedia_Art").try_as<Controls::Image>();
+        ImageSource source{nullptr};
+        if (art) source = art.Source();
+        if (g_canvasMotionImage.Source() != source) {
+            StopCanvasMotion();
+            g_canvasMotionImage.Source(source);
+        }
+        UpdateCanvasVideoGeometry();
+        UpdateCanvasFallbackVisibility();
+        StartCanvasMotionIfNeeded(playing);
+    } catch (...) {
+        StopCanvasMotion();
+        Wh_Log(L"Motion artwork sync unavailable; retaining original artwork");
+    }
+}
+// Keep the existing artwork available as a real fallback. No empty second tile.
+// This function runs on Explorer's XAML/UI thread, just like the media events.
+static void UpdateCanvasFallbackVisibility() {
+    if (!g_settings.canvasEnabled) return;
+    try {
+        const bool videoVisible = g_canvasVideoReady && !g_canvasCurrentPath.empty() &&
+                                  g_canvasCurrentPath != g_canvasBadPath &&
+                                  !(g_settings.canvasPauseOnBattery && ReduceMotionForPower());
+        const bool motionVisible = !videoVisible && CanvasUseMotionArtwork();
+        if (g_canvasMedia) g_canvasMedia.Visibility(videoVisible ? Visibility::Visible : Visibility::Collapsed);
+        if (g_canvasMotionImage) g_canvasMotionImage.Visibility(motionVisible ? Visibility::Visible : Visibility::Collapsed);
+        if (g_canvasTile) g_canvasTile.Visibility((videoVisible || motionVisible) ? Visibility::Visible : Visibility::Collapsed);
+        const bool keepArt = !(videoVisible || motionVisible) ||
+            (g_settings.canvasDisplayMode == L"both" && g_settings.showAlbumArt);
+        if (g_canvasArtwork) g_canvasArtwork.Visibility(keepArt ? Visibility::Visible : Visibility::Collapsed);
+    } catch (...) {
+        // Safety-first: album artwork must remain visible after any UI error.
+        try { if (g_canvasArtwork) g_canvasArtwork.Visibility(Visibility::Visible); } catch (...) {}
+    }
+}
+static void RefreshCanvasVideo(const std::wstring& title, const std::wstring& artist,
+                               bool hasSession, bool isPlaying) {
+    if (!g_canvasMedia || !g_canvasTile || !g_settings.canvasEnabled) return;
+    try {
+        const std::wstring key = hasSession ? artist + L"\x1f" + title : L"";
+        const auto now = std::chrono::steady_clock::now();
+        const bool recheck = key != g_canvasLookupKey || g_canvasLastLookup ==
+            std::chrono::steady_clock::time_point{} ||
+            now - g_canvasLastLookup > std::chrono::seconds(5);
+        if (recheck) {
+            g_canvasLookupKey = key;
+            g_canvasLastLookup = now;
+            g_canvasLastFoundFile = CanvasFindForTrack(title, artist, hasSession);
+        }
+        const std::wstring& file = g_canvasLastFoundFile;
+        const bool changed = file != g_canvasCurrentPath;
+        if (changed) {
+            g_canvasJustChanged = !file.empty() && !g_lastAnimatedTrack.empty();
+            g_canvasVideoReady = false;  // Keep artwork during decoder startup.
+            UpdateCanvasFallbackVisibility();
+            g_canvasMedia.Stop();
+            g_canvasCurrentlyPlaying = false;
+            g_canvasMedia.Source(winrt::Windows::Foundation::Uri{nullptr});
+            g_canvasCurrentPath = file;
+            if (!file.empty()) {
+                if (file != g_canvasBadPath) {
+                    const std::wstring uri = CanvasValidOnlineMp4(file) ? file : CanvasFileUri(file);
+                    g_canvasMedia.Source(winrt::Windows::Foundation::Uri(winrt::hstring(uri)));
+                }
+            }
+            UpdateCanvasFallbackVisibility();
+        }
+        const bool preview = g_settings.canvasPreviewWithoutMusic &&
+            (g_settings.canvasSourceMode == L"fixed" ||
+             g_settings.canvasSourceMode == L"online_canvas" ||
+             g_settings.canvasSourceMode == L"online_official") && !hasSession;
+        const bool canPlay = g_canvasVideoReady && !file.empty() &&
+            file != g_canvasBadPath &&
+            (isPlaying || g_settings.canvasPlayWhenPaused || preview) &&
+            g_playerGrid && g_playerGrid.Visibility() == Visibility::Visible &&
+            !(g_settings.canvasPauseOnBattery && ReduceMotionForPower());
+        if (canPlay != g_canvasCurrentlyPlaying) {
+            if (canPlay) g_canvasMedia.Play(); else g_canvasMedia.Pause();
+            g_canvasCurrentlyPlaying = canPlay;
+        }
+        if (g_canvasVideoReady) UpdateCanvasVideoGeometry();
+        UpdateCanvasFallbackVisibility();
+    } catch (winrt::hresult_error const& e) {
+        Wh_Log(L"Canvas video error (HRESULT 0x%08X)", static_cast<unsigned>(e.code()));
+        try { g_canvasMedia.Stop(); g_canvasTile.Visibility(Visibility::Collapsed); } catch (...) {}
+        g_canvasBadPath = g_canvasCurrentPath;
+        g_canvasVideoReady = false;
+        g_canvasCurrentPath.clear();
+        g_canvasCurrentlyPlaying = false;
+        UpdateCanvasFallbackVisibility();
+    } catch (...) {
+        Wh_Log(L"Canvas video playback unavailable on this Windows build");
+        try { g_canvasMedia.Stop(); g_canvasTile.Visibility(Visibility::Collapsed); } catch (...) {}
+        g_canvasBadPath = g_canvasCurrentPath;
+        g_canvasVideoReady = false;
+        g_canvasCurrentPath.clear();
+        g_canvasCurrentlyPlaying = false;
+        UpdateCanvasFallbackVisibility();
+    }
+}
+
+// UI-thread-only adaptive layout. Reparent the visualizer only on a lyrics
+// availability transition, not every frame or lyric syllable.
+static void RefreshCompactMissingLyricsLayout() {
+    if (!g_playerGrid || g_settings.lyricsOnly ||
+        g_unloading || g_applyingSettings) return;
+    bool lyricVisible = false, farDueSoon = false;
+    {
+        std::lock_guard<std::mutex> lock(g_lyricsMutex);
+        lyricVisible = g_lyricsDisplayIndex >= 0 &&
+            g_lyricsDisplayIndex < (int)g_lyricsCues.size() &&
+            !g_lyricsCues[g_lyricsDisplayIndex].text.empty();
+        farDueSoon = g_lyricsFarDueSoon;
+    }
+    bool compact = g_settings.vizCompactEnabled &&
+        (!g_settings.showLyrics || (!lyricVisible && !farDueSoon));
+    if (VizPreviewWithoutPlayback()) {
+        if (g_settings.vizPreviewMode == L"near") compact = true;
+        else if (g_settings.vizPreviewMode == L"far") compact = false;
+        else if (g_settings.vizPreviewMode == L"cycle") {
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - g_vizPreviewEpoch).count();
+            compact = ((ms / 4000) % 2) == 0;
+        }
+    } else if (g_settings.previewLayout) {
+        // Preserve the original global layout-preview behavior.
+        compact = false;
+    }
+    if (compact == g_compactNoLyricsActive) return;
+    try {
+        auto panel = FindChildByName(g_playerGrid, kPanelGridName).try_as<Grid>();
+        if (!panel) return;
+        auto lyrics = FindChildByName(panel, L"FluentLyrics_Embedded");
+        auto viz = FindChildByName(panel, L"FluentMedia_Visualizer").try_as<FrameworkElement>();
+        auto dock = FindChildByName(panel, L"FluentMedia_AlbumVizDock").try_as<StackPanel>();
+        // The near layout requires a genuine album-art container. Otherwise
+        // keep the visualizer at its safe original slot, with no orphan views.
+        if (!viz || !dock || g_vizNormalColumn < 0) compact = false;
+        double oldVizX = 0.0;
+        bool haveOldVizX = false;
+        if (compact != g_compactNoLyricsActive && viz && dock && g_vizNormalColumn >= 0) {
+            // Record on-screen X before reparenting. The source and destination
+            // are measured relative to the SAME panel, regardless of column width.
+            try {
+                const auto point = viz.TransformToVisual(panel).TransformPoint({0.0f, 0.0f});
+                oldVizX = point.X;
+                haveOldVizX = std::isfinite(oldVizX);
+            } catch (...) {}
+            if (g_vizDockStoryboard) {
+                // Capture the current visual position above, *before* canceling
+                // an unfinished animation. A rapid lyric change can now reverse
+                // direction without jumping back to the last fixed position.
+                try { g_vizDockStoryboard.Stop(); } catch (...) {}
+                g_vizDockStoryboard = nullptr;
+            }
+            // Reparent in one UI-thread operation; the new storyboard starts
+            // at the captured screen coordinate after UpdateLayout.
+            if (auto previousShift = viz.RenderTransform().try_as<TranslateTransform>())
+                previousShift.X(0.0);
+            auto vizElement = viz.as<UIElement>();
+            if (compact) {
+                auto children = panel.Children();
+                bool removed = false;
+                for (uint32_t i = 0; i < children.Size(); ++i) {
+                    if (children.GetAt(i) == vizElement) {
+                        children.RemoveAt(i);
+                        removed = true;
+                        break;
+                    }
+                }
+                if (!removed) return;
+                try { dock.Children().Append(vizElement); }
+                catch (...) {
+                    Grid::SetColumn(viz, g_vizNormalColumn);
+                    panel.Children().Append(vizElement);
+                    throw;
+                }
+            } else {
+                auto children = dock.Children();
+                bool removed = false;
+                for (uint32_t i = 0; i < children.Size(); ++i) {
+                    if (children.GetAt(i) == vizElement) {
+                        children.RemoveAt(i);
+                        removed = true;
+                        break;
+                    }
+                }
+                if (!removed) return;
+                Grid::SetColumn(viz, g_vizNormalColumn);
+                try { panel.Children().Append(vizElement); }
+                catch (...) { dock.Children().Append(vizElement); throw; }
+            }
+            // Reparenting changes real layout, never paints into the artwork.
+            // Keep far margins *exactly* as the previous version used them.
+            const bool vizLeft = (g_settings.vizPosition == L"left") != g_settings.mirrorLayout;
+            const double gap = (double)g_settings.vizSectionGap;
+            const double ml = compact ?
+                (double)(g_settings.vizCompactGap +
+                         std::max(0, g_settings.vizCompactHorizontalOffset)) :
+                (double)(g_settings.vizPadLeft + (vizLeft ? 0.0 : gap) +
+                         std::max(0, g_settings.vizHorizontalOffset));
+            const double mr = compact ?
+                (double)std::max(0, -g_settings.vizCompactHorizontalOffset) :
+                (double)(g_settings.vizPadRight + (vizLeft ? gap : 0.0) +
+                         std::max(0, -g_settings.vizHorizontalOffset));
+            viz.Margin({ml, 0, mr, 0});
+            if (auto tr = viz.RenderTransform().try_as<TranslateTransform>())
+                tr.Y((double)(compact ? g_settings.vizCompactVerticalOffset :
+                                           g_settings.vizVerticalOffset));
+            // Run the transition after lyrics visibility and layout settle.
+            // Otherwise the destination coordinate is still the old column.
+        }
+        // Lyrics are shown only when a cue is active, except the pre-cue
+        // reservation (the empty area is prepared 500ms ahead of the words).
+        const bool previewFar = VizPreviewWithoutPlayback() &&
+            (g_settings.vizPreviewMode == L"far" ||
+             (g_settings.vizPreviewMode == L"cycle" && !compact));
+        if (lyrics)
+            lyrics.Visibility((compact && !previewFar) ? Visibility::Collapsed : Visibility::Visible);
+        g_compactNoLyricsActive = compact;
+        if (g_lyricsOverlayHost) {
+            g_playerGrid.ClearValue(FrameworkElement::WidthProperty());
+            g_playerGrid.Measure({std::numeric_limits<float>::infinity(),
+                                  (float)std::max(24, g_settings.playerMaxHeight)});
+            g_playerOverlayWidth = std::max(1.0, (double)g_playerGrid.DesiredSize().Width);
+            g_lyricsLastLayoutTime = {};
+        }
+        if (viz && dock && g_vizNormalColumn >= 0) {
+            // Layout is synchronous on Explorer's UI thread, with no polling
+            // and no high-frequency timer. This is only called on dock changes.
+            viz.Opacity(1.0);
+            if (auto shift = viz.RenderTransform().try_as<TranslateTransform>()) {
+                shift.X(0.0);
+                if (g_settings.vizMoveAnimationMs > 0 && !ReduceMotionForPower() &&
+                    g_settings.vizTransitionStyle != L"instant") {
+                    try {
+                        panel.UpdateLayout();
+                        const auto target = viz.TransformToVisual(panel).TransformPoint({0.0f, 0.0f});
+                        double dx = (haveOldVizX && std::isfinite((double)target.X)) ?
+                                    oldVizX - (double)target.X : 0.0;
+                        // If artwork lies between the two positions (e.g. mirrored
+                        // and far-left layouts), slide locally at the destination
+                        // rather than sweeping directly across album artwork.
+                        if (g_settings.vizTransitionStyle == L"slide" && std::abs(dx) > 0.5) {
+                            try {
+                                if (dock.Children().Size() > 0) {
+                                    auto art = dock.Children().GetAt(0).try_as<FrameworkElement>();
+                                    if (art) {
+                                        auto artP = art.TransformToVisual(panel).TransformPoint({0.0f,0.0f});
+                                        const double artL = artP.X;
+                                        const double artR = artL + art.ActualWidth();
+                                        const double destX = target.X;
+                                        const double startX = oldVizX;
+                                        if (std::min(startX, destX) < artR &&
+                                            std::max(startX, destX) + viz.ActualWidth() > artL) {
+                                            // Approach the destination from its own
+                                            // artwork-safe side, never across the cover.
+                                            if (destX >= artR + 1.0) dx = 18.0;
+                                            else if (destX + viz.ActualWidth() <= artL - 1.0) dx = -18.0;
+                                            else dx = 0.0; // Fade if destination geometry is ambiguous.
+                                        }
+                                    }
+                                }
+                            } catch (...) { dx = std::clamp(dx, -18.0, 18.0); }
+                        }
+                        const auto duration = DurationHelper::FromTimeSpan(
+                            std::chrono::milliseconds(g_settings.vizMoveAnimationMs));
+                        Storyboard sb;
+                        const std::wstring& selectedEase = compact ?
+                            (g_settings.vizFarToNearEase == L"match" ? g_settings.vizNearToFarEase
+                                                                      : g_settings.vizFarToNearEase) :
+                            g_settings.vizNearToFarEase;
+                        auto ease = MakeVizDockEase(selectedEase);
+                        bool hasMovement = false;
+                        if (g_settings.vizTransitionStyle == L"slide" &&
+                            std::isfinite(dx) && std::abs(dx) >= 0.5 && std::abs(dx) <= 2000.0) {
+                            // Render from the *previous screen position* all
+                            // the way to the newly allocated destination. Unlike
+                            // the earlier fade/short-shift mode, bars stay fully
+                            // opaque and visually travel the whole distance.
+                            shift.X(dx);
+                            viz.Opacity(1.0);
+                            DoubleAnimation move;
+                            move.From(dx);
+                            move.To(0.0);
+                            move.Duration(duration);
+                            if (ease) move.EasingFunction(ease);
+                            // RenderTransform.X is animated on the UI thread;
+                            // no 16-ms custom movement timer is needed.
+                            Storyboard::SetTarget(move, shift);
+                            Storyboard::SetTargetProperty(move, L"X");
+                            sb.Children().Append(move);
+                            hasMovement = true;
+                        }
+                        if (!hasMovement) {
+                            // Respect the existing Fade style, as well as a
+                            // safe fallback when source/target cannot be measured.
+                            DoubleAnimation fade;
+                            fade.From(g_settings.vizTransitionStyle == L"fade" ? 0.0 : 1.0);
+                            fade.To(1.0);
+                            fade.Duration(duration);
+                            if (ease) fade.EasingFunction(ease);
+                            Storyboard::SetTarget(fade, viz);
+                            Storyboard::SetTargetProperty(fade, L"Opacity");
+                            sb.Children().Append(fade);
+                        }
+                        g_vizDockStoryboard = sb;
+                        sb.Begin();
+                    } catch (...) {
+                        shift.X(0.0);
+                        viz.Opacity(1.0);
+                        Wh_Log(L"Visualizer dock slide failed; restored final location");
+                    }
+                }
+            }
+        }
+    } catch (...) { Wh_Log(L"Compact lyrics layout transition failed"); }
+}
 static void RefreshPlayerContents() {
     if (!g_playerGrid || g_unloading || g_applyingSettings) return;
     if (g_resetScrollPending.exchange(false)) {
@@ -11036,6 +13302,7 @@ static void RefreshPlayerContents() {
     }
     RefreshLyricsOnlyUi();
     if (g_settings.lyricsOnly) return;
+    RefreshCompactMissingLyricsLayout();
     std::wstring      title, artist;
     bool              isPlaying = false, hasMedia = false;
     std::vector<BYTE> thumbBytes;
@@ -11065,8 +13332,10 @@ static void RefreshPlayerContents() {
         artist = L"Album art · Controls · Lyrics";
     }
     (void)hasMedia;
+    g_albumArtworkPlaying = isPlaying;
     bool hasSession = false;
     { std::lock_guard<std::mutex> lk(g_sessionMtx); hasSession = (g_currentSession != nullptr); }
+    RefreshCanvasVideo(title, artist, hasSession, isPlaying);
     g_playerGrid.UpdateLayout();
     if (title != g_scrollCachedTitle || artist != g_scrollCachedArtist) {
         g_scrollCachedTitle  = title;
@@ -11458,7 +13727,7 @@ static void RefreshPlayerContents() {
         if (auto fe = FindChildByName(g_playerGrid, L"PauseIconOverlay"))
             if (auto overlay = fe.try_as<Border>()) {
                 try {
-                    bool showPause = !isPlaying;
+                    bool showPause = !isPlaying && g_albumArtworkHovered;
                     overlay.Visibility(showPause ? Visibility::Visible : Visibility::Collapsed);
                     if (auto pauseIcon = overlay.Child().try_as<TextBlock>()) {
                         pauseIcon.Text(GetGlyph(2, true));
@@ -11487,16 +13756,21 @@ static void RefreshPlayerContents() {
             }
     }
     bool paletteChanged = false;
+    bool artChangedThisUpdate = false;
     if (auto fe = FindChildByName(g_playerGrid, kArtImageName))
         if (auto img = fe.try_as<Controls::Image>()) {
-            if (!thumbBytes.empty() && g_settings.showAlbumArt) {
+            if (!thumbBytes.empty() && (g_settings.showAlbumArt || g_settings.canvasEnabled)) {
                 bool isSameAlbum = (!g_cachedThumbnailBytes.empty() &&
                                 title == g_cachedAlbumTitle &&
                                 artist == g_cachedAlbumArtist &&
                                 thumbBytes == g_cachedThumbnailBytes);
                 size_t newHash = (size_t)thumbHash;
                 if (newHash != g_cachedPaletteHash && newHash != 0) {
+                    g_songColorFrom = g_cachedAlbumPalette;
                     g_cachedAlbumPalette = ExtractAlbumPalette(thumbBytes);
+                    g_songColorTransitionAt = std::chrono::steady_clock::now();
+                    g_songColorTransitionActive = g_settings.songChangeEnabled &&
+                        g_settings.songChangeVizColor;
                     g_cachedPaletteHash = newHash;
                     g_vizPaletteColorsDirty = true;
                     paletteChanged = true;
@@ -11538,6 +13812,7 @@ static void RefreshPlayerContents() {
                                     } catch (...) {}
                                 });
                                 img.Source(bmp);
+                                artChangedThisUpdate = true;
                                 bmp.SetSourceAsync(rasStream);
                                 img.Visibility(Visibility::Visible);
                                 g_cachedAlbumTitle = title;
@@ -11646,7 +13921,8 @@ static void RefreshPlayerContents() {
                 try {
                     img.Source(nullptr);
                     img.Visibility(Visibility::Collapsed);
-                    if (!g_settings.previewLayout && g_settings.albumArtEmptyBehavior == L"hide" && thumbBytes.empty()) {
+                    if (!g_settings.previewLayout && !VizPreviewWithoutPlayback() &&
+                        g_settings.albumArtEmptyBehavior == L"hide" && thumbBytes.empty()) {
                         if (auto parent = VisualTreeHelper::GetParent(img)) {
                             if (auto container = parent.try_as<FrameworkElement>()) {
                                 if (auto grandParent = VisualTreeHelper::GetParent(container)) {
@@ -11658,7 +13934,8 @@ static void RefreshPlayerContents() {
                                 }
                             }
                         }
-                    } else if ((g_settings.previewLayout || g_settings.albumArtEmptyBehavior == L"show_icon") && thumbBytes.empty()) {
+                    } else if ((g_settings.previewLayout || VizPreviewWithoutPlayback() ||
+                                g_settings.albumArtEmptyBehavior == L"show_icon") && thumbBytes.empty()) {
                         if (auto parent = VisualTreeHelper::GetParent(img)) {
                             if (auto artInnerGrid = parent.try_as<Grid>()) {
                                 if (auto grandParent = VisualTreeHelper::GetParent(artInnerGrid)) {
@@ -11844,6 +14121,11 @@ static void RefreshPlayerContents() {
             }
         }
     } catch (...) {}
+    // Share the decoded media-session bitmap with the optional motion tile.
+    // Original art, buttons, and lyric layout stay separate.
+    SyncCanvasMotionArtwork(title, artist, hasSession, isPlaying);
+    // Thumbnail logic may unhide the artwork on refresh: enforce Canvas mode last.
+    UpdateCanvasFallbackVisibility();
     if (g_lyricsOverlayHost && !g_settings.lyricsOnly) {
         try {
             g_playerGrid.ClearValue(FrameworkElement::WidthProperty());
@@ -11851,20 +14133,62 @@ static void RefreshPlayerContents() {
             g_playerOverlayWidth = std::max(1.0, (double)g_playerGrid.DesiredSize().Width);
         } catch (...) {}
     }
+    // Trigger only on song metadata changes, never on play/pause or bar frames.
+    const std::wstring songIdentity = hasSession ? title + L"\x1f" + artist : L"";
+    if (songIdentity != g_lastAnimatedTrack) {
+        const bool hadPreviousTrack = !g_lastAnimatedTrack.empty();
+        StopSongChangeAnimations();
+        g_lastAnimatedTrack = songIdentity;
+        if (hadPreviousTrack && !songIdentity.empty() && g_settings.songChangeText) {
+            if (auto titleFe = FindChildByName(g_playerGrid, kTitleBlockName))
+                AnimateSongChangeElement(titleFe);
+            if (auto artistFe = FindChildByName(g_playerGrid, kArtistBlockName))
+                AnimateSongChangeElement(artistFe);
+        }
+    }
+    if (artChangedThisUpdate && g_settings.songChangeCover && !songIdentity.empty()) {
+        if (auto artFe = FindChildByName(g_playerGrid, kArtImageName))
+            AnimateSongChangeElement(artFe);
+    }
     RefreshMiniPlayerFlyoutUI();
 }
 static bool IsFullscreenActive() {
-    using Fn = HRESULT(WINAPI*)(int*);
-    static Fn pfn = nullptr; static bool tried = false;
-    if (!tried) {
-        tried = true;
-        HMODULE h = GetModuleHandleW(L"shell32.dll");
-        if (!h) h = LoadLibraryW(L"shell32.dll");
-        if (h) pfn = (Fn)GetProcAddress(h, (LPCSTR)2573);
-    }
-    if (!pfn) return false;
-    int s = 0;
-    return SUCCEEDED(pfn(&s)) && (s == 2 || s == 3 || s == 4);
+    // Older SHQueryUserNotificationState-like checks can report a busy or
+    // presentation shell state even when two ordinary windows are snapped.
+    // Instead inspect the foreground application's visible frame on this
+    // taskbar's monitor. Split windows can never pass all four edge checks.
+    HWND foreground = GetForegroundWindow();
+    if (!foreground || !IsWindow(foreground) || IsIconic(foreground)) return false;
+    foreground = GetAncestor(foreground, GA_ROOT);
+    if (!foreground || foreground == g_taskbarWnd) return false;
+    wchar_t cls[96]{};
+    GetClassNameW(foreground, cls, ARRAYSIZE(cls));
+    if (wcscmp(cls, L"Shell_TrayWnd") == 0 ||
+        wcscmp(cls, L"Shell_SecondaryTrayWnd") == 0 ||
+        wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0)
+        return false;
+    HMONITOR playerMonitor = g_taskbarWnd
+        ? MonitorFromWindow(g_taskbarWnd, MONITOR_DEFAULTTONEAREST) : nullptr;
+    HMONITOR foregroundMonitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
+    if (!playerMonitor || playerMonitor != foregroundMonitor) return false;
+    MONITORINFO info{sizeof(info)};
+    if (!GetMonitorInfoW(playerMonitor, &info)) return false;
+    RECT bounds{};
+    HRESULT dwm = DwmGetWindowAttribute(foreground, DWMWA_EXTENDED_FRAME_BOUNDS,
+                                         &bounds, sizeof(bounds));
+    if (FAILED(dwm) && !GetWindowRect(foreground, &bounds)) return false;
+    constexpr LONG tolerance = 3;
+    const bool coversMonitor = bounds.left <= info.rcMonitor.left + tolerance &&
+        bounds.top <= info.rcMonitor.top + tolerance &&
+        bounds.right >= info.rcMonitor.right - tolerance &&
+        bounds.bottom >= info.rcMonitor.bottom - tolerance;
+    if (!coversMonitor) return false;
+    // Maximized framed windows with auto-hide taskbars sometimes occupy the
+    // complete screen without being F11/borderless fullscreen.
+    LONG_PTR style = GetWindowLongPtrW(foreground, GWL_STYLE);
+    if (IsZoomed(foreground) && (style & WS_CAPTION) && (style & WS_THICKFRAME))
+        return false;
+    return true;
 }
 static void UpdateVisibility() {
     if (!g_playerGrid || g_unloading || g_applyingSettings) return;
@@ -11873,14 +14197,38 @@ static void UpdateVisibility() {
     { std::lock_guard<std::mutex> lk(g_mediaMtx); hasMedia = g_media.hasMedia; }
     const auto now = std::chrono::steady_clock::now();
     if (hasMedia) g_lastMediaTime = now;
-    bool hide = (g_settings.hideFullscreen && IsFullscreenActive()) || g_hiddenByIdle;
-    if (g_settings.previewLayout) hide = false;
+    bool hide = (g_settings.hideFullscreen && !g_settings.allowInFullscreen && IsFullscreenActive()) || g_hiddenByIdle;
+    if (g_settings.previewLayout || (g_settings.vizEnabled &&
+        g_settings.vizPreviewMode != L"off") ||
+        (g_settings.canvasEnabled && g_settings.canvasPreviewWithoutMusic &&
+         (g_settings.canvasSourceMode == L"fixed" ||
+          g_settings.canvasSourceMode == L"online_canvas" ||
+          g_settings.canvasSourceMode == L"online_official"))) hide = false;
     else if (g_settings.hideWhenNoMedia && !g_miniPlayerFlyoutOpen) {
         hide = hide || !hasSession || (!hasMedia && now - g_lastMediaTime > std::chrono::milliseconds(2500));
     }
     try {
         const auto visibility = hide ? Visibility::Collapsed : Visibility::Visible;
         if (g_playerGrid.Visibility() != visibility) g_playerGrid.Visibility(visibility);
+        if (g_canvasMedia && !g_canvasCurrentPath.empty() &&
+            g_canvasCurrentPath != g_canvasBadPath) {
+            if (hide && g_canvasCurrentlyPlaying) {
+                try { g_canvasMedia.Pause(); } catch (...) {}
+                g_canvasCurrentlyPlaying = false;
+            } else if (!hide && !g_canvasCurrentlyPlaying &&
+                (g_albumArtworkPlaying || g_settings.canvasPlayWhenPaused ||
+                 (g_settings.canvasPreviewWithoutMusic &&
+                  (g_settings.canvasSourceMode == L"fixed" ||
+                   g_settings.canvasSourceMode == L"online_canvas" ||
+                   g_settings.canvasSourceMode == L"online_official"))) &&
+                !(g_settings.canvasPauseOnBattery && ReduceMotionForPower())) {
+                try { g_canvasMedia.Play(); g_canvasCurrentlyPlaying = true; } catch (...) {}
+            }
+        }
+        UpdateCanvasFallbackVisibility();
+        // Suspend the animation while the taskbar overlay is hidden or media is paused.
+        if (hide) StopCanvasMotion();
+        else StartCanvasMotionIfNeeded(g_albumArtworkPlaying);
         // A collapsed auto column releases its space without destroying min/max constraints.
         if (g_playerColumn >= 0 && g_injectionParent) {
             auto grid = g_injectionParent.try_as<Grid>();
@@ -11890,11 +14238,23 @@ static void UpdateVisibility() {
                 if (col.Width().GridUnitType != desired.GridUnitType || col.Width().Value != desired.Value) col.Width(desired);
             }
         }
-        const bool runViz = !hide && !g_settings.lyricsOnly && g_settings.vizEnabled && !ReduceMotionForPower();
+        // An explicit no-music test preview remains available even if normal
+        // battery saving suppresses the real-time audio visualizer.
+        const bool previewDemo = VizPreviewWithoutPlayback();
+        const bool runViz = !hide && !g_settings.lyricsOnly && g_settings.vizEnabled &&
+                            (!ReduceMotionForPower() || previewDemo);
         if (runViz != g_vizCurrentlyVisible) {
             g_vizCurrentlyVisible = runViz;
-            if (runViz) { StartVizCaptureThread(); StartVizTimer(); }
-            else { StopVizTimer(); StopVizCaptureThread(); }
+            if (runViz) StartVizTimer();
+            else StopVizTimer();
+        }
+        // Do not open a real WASAPI loopback stream just for test animation.
+        const bool captureNeeded = runViz && !VizPreviewWithoutPlayback();
+        // Use the real worker state, not a function-static remembered flag:
+        // an Explorer/taskbar reinjection may have already stopped that worker.
+        if (captureNeeded != g_CaptureRunning.load()) {
+            if (captureNeeded) StartVizCaptureThread();
+            else StopVizCaptureThread();
         }
         if (!hide && !ReduceMotionForPower() && !g_settings.lyricsOnly &&
             (g_settings.enableTitleScrolling || g_settings.enableArtistScrolling) &&
@@ -11962,11 +14322,30 @@ static void WINAPI TrayUI_StartTaskbar_Hook(void* pThis) {
         return;
     }
     // Discard pending cover clicks and old UI delegates on an actual taskbar restart.
+    StopSongChangeAnimations();
+    g_lastAnimatedTrack.clear();
+    StopCanvasMotion();
+    g_canvasMotionImage = nullptr;
+    g_canvasMotionTrackKey.clear();
+    // Old taskbar XAML is gone. Do not retain its media surfaces across reinjection.
+    try { if (g_canvasMedia) g_canvasMedia.Stop(); } catch (...) {}
+    g_canvasMedia = nullptr;
+    g_canvasTile = nullptr;
+    g_canvasArtwork = nullptr;
+    g_canvasCurrentPath.clear();
+    g_canvasVideoReady = false;
+    g_canvasCurrentlyPlaying = false;
+    g_canvasLookupKey.clear();
+    g_canvasLastFoundFile.clear();
+    g_canvasLastLookup = {};
     for (auto& cleanup : g_uiCleanup) { try { cleanup(); } catch (...) {} }
     g_uiCleanup.clear();
     g_cachedTaskbarXamlRoot = nullptr;
     g_cachedTaskbarRootWindow = nullptr;
     g_playerGrid      = nullptr;
+    g_vizNormalColumn = -1;
+    g_compactNoLyricsActive = false;
+    g_albumArtworkHovered = false;
     g_lyricsOverlayHost = nullptr;
     g_lyricsViewport = nullptr;
     g_lyricsGuardClip = nullptr;
@@ -12184,9 +14563,14 @@ static bool ReconfigureSettingsOnUi(int monitorOverride) {
         {
             std::lock_guard<std::mutex> lock(g_lyricsMutex);
             g_lyricsKey.clear();
+            // A change to source-script or matching settings invalidates cached lyrics.
+            g_lyricsCache.clear();
             ++g_lyricsGeneration;
             g_lyricsCues.clear();
             g_lyricsCurrentIndex = -1;
+            g_lyricsDisplayIndex = -1;
+            g_lyricsDisplayWordIndex = -1;
+            g_lyricsFarDueSoon = false;
             g_lyricsLastPositionMs = -1;
             g_lyricsWorkerActive = false;
             g_lyricsPending = false;
@@ -12268,4 +14652,3 @@ BOOL Wh_ModSettingsChanged(BOOL* reload) {
     // XAML objects/delegates may survive a tree removal. Keep their code mapped.
     if (reload) *reload = FALSE;
     return ApplySettingsLive() ? TRUE : FALSE;
-}
