@@ -14652,3 +14652,4 @@ BOOL Wh_ModSettingsChanged(BOOL* reload) {
     // XAML objects/delegates may survive a tree removal. Keep their code mapped.
     if (reload) *reload = FALSE;
     return ApplySettingsLive() ? TRUE : FALSE;
+}
