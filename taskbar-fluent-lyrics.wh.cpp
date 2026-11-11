@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Windows 11 taskbar media controls, lyrics, visualizer, automatically animated artwork and optional authorized video.
-// @version         3.1.8.2
+// @version         3.1.8.3
 // @author          ironsensey
 // @github          https://github.com/ironsensey
 // @include         explorer.exe
@@ -12,9 +12,18 @@
 
 // ==WindhawkModReadme==
 /*
-# Taskbar Fluent Media + Lyrics 3.1.8.2
+# Taskbar Fluent Media + Lyrics 3.1.8.3
 
 Album art, track details, playback controls and synced lyrics share one player.
+
+**Sentence timing in 3.1.8.3:** The entire sentence appears at the line cue,
+without word-by-word highlighting. A trailing enhanced-LRC word-end marker is
+used when provided; otherwise real word starts inform a guarded end estimate.
+If there is only line timing, a conservative estimate is used for long gaps
+(or select Hold until next cue to avoid early cutoff). This does not isolate
+vocals or detect the singer's final syllable without an actual end marker.
+Legacy 16-second lyric cutoff does not apply in sentence mode. The timeline
+can only be as accurate as the Windows media session supplying it.
 Default order: **cover | title / artist | previous, play / pause, next | lyrics**.
 Mirror layout reverses the cover and controls. Their sides can also be chosen independently.
 
@@ -650,17 +659,32 @@ New streaming integration and customizations by ironsensey.
   - showPlainLyrics: true
     $name: Show unsynchronized lyrics if timed lyrics are missing
     $description: Show LRCLIB plain text without an intrusive label. Lines advance at a fixed interval; this is NOT synchronized to vocals or eligible for accurate word-follow highlighting.
+  - sentenceMode: true
+    $name: Precise sentence display (whole line, no word highlighting)
+    $description: Show the entire line at once. Use an explicit last-word end marker if present, otherwise infer a cautious end from timed word starts; with line-only LRC use the selected fallback. Hides the line during an identified gap. Old word-follow options are ignored while this mode is on.
+  - sentenceEndFallback: "adaptive"
+    $name: Line-only lyrics - ending behavior when word timing is unavailable
+    $description: Adaptive attempts a conservative end during unusually long gaps. Hold-until-next never guesses a line ending and avoids prematurely cutting sustained vocals, but may leave lyrics visible during instrumental gaps. Neither can detect actual singing from audio.
+    $options:
+    - adaptive: Adaptive end for long gaps (approximate)
+    - until_next: Keep line until next cue (no guess)
+  - sentenceEndTailMs: 200
+    #! $min: 0
+    #! $max: 1500
+    #! $format: slider
+    $name: End timing grace after final word (ms)
+    $description: Adds a small delay after a known final-word end or a word-start-based estimate. Keeps sustained final syllables from being cut early. Has no effect when holding until the next line.
   - lyricsHoldMs: 16000
     #! $min: 3000
     #! $max: 60000
     #! $format: slider
-    $name: Maximum lyric line hold during long gaps (ms)
-    $description: A lyric remains visible until its next cue, up to this limit. A deliberately empty LRC cue immediately clears it. Separate from visualizer docking; set higher if long vocal phrases disappear too soon.
-  - lyricsWordFollow: true
-    $name: Follow individual words when timestamps are available
+    $name: Legacy maximum lyric hold (ignored in sentence mode)
+    $description: Applies only with precise sentence display OFF. Sentence mode uses word-end timing and the fallback policy instead of a fixed timeout.
+  - lyricsWordFollow: false
+    $name: Legacy word highlighting (disabled by sentence mode)
     $description: Highlight words using enhanced-LRC timing tags supplied by the lyrics source. Word-accurate follow is not available for regular line-only LRC.
-  - lyricsEstimateWordTiming: true
-    $name: Approximate word-follow for regular line-timed lyrics
+  - lyricsEstimateWordTiming: false
+    $name: Legacy estimated word highlighting (disabled by sentence mode)
     $description: Spread words across the time until the next line when enhanced-LRC word timestamps are unavailable. This looks smoother but is an ESTIMATE, not word-accurate vocal sync. No word-follow for unsynced plain lyrics.
   - lyricsNoTimelineFallback: true
     $name: Display approximate lyrics when Spotify provides no playback timeline
@@ -2064,8 +2088,11 @@ struct ModSettings {
     bool         showPlainLyrics = true;
     bool         lyricsNoTimelineFallback = true;
     int          lyricsHoldMs = 16000;
-    bool         lyricsWordFollow = true;
-    bool         lyricsEstimateWordTiming = true;
+    bool         sentenceMode = true;
+    std::wstring sentenceEndFallback = L"adaptive";
+    int          sentenceEndTailMs = 200;
+    bool         lyricsWordFollow = false;
+    bool         lyricsEstimateWordTiming = false;
     int          plainLyricsLineMs = 5000;
     // Canvas is an optional independent tile. Online sources must be authorized HTTPS MP4 URLs.
     bool         canvasEnabled = false;
@@ -2468,6 +2495,10 @@ static void LoadSettings() {
     g_settings.showPlainLyrics = Wh_GetIntSetting(L"LyricsSettings.showPlainLyrics") != 0;
     g_settings.lyricsNoTimelineFallback = Wh_GetIntSetting(L"LyricsSettings.lyricsNoTimelineFallback") != 0;
     g_settings.lyricsHoldMs = Int(L"LyricsSettings.lyricsHoldMs", 3000, 60000, 16000);
+    g_settings.sentenceMode = Wh_GetIntSetting(L"LyricsSettings.sentenceMode") != 0;
+    g_settings.sentenceEndFallback = Str(L"LyricsSettings.sentenceEndFallback", L"adaptive");
+    if (g_settings.sentenceEndFallback != L"until_next") g_settings.sentenceEndFallback = L"adaptive";
+    g_settings.sentenceEndTailMs = Int(L"LyricsSettings.sentenceEndTailMs", 0, 1500, 200);
     g_settings.lyricsWordFollow = Wh_GetIntSetting(L"LyricsSettings.lyricsWordFollow") != 0;
     g_settings.lyricsEstimateWordTiming = Wh_GetIntSetting(L"LyricsSettings.lyricsEstimateWordTiming") != 0;
     g_settings.plainLyricsLineMs = Int(L"LyricsSettings.plainLyricsLineMs", 2000, 12000, 5000);
@@ -3184,6 +3215,7 @@ struct LyricCue {
     std::wstring text;
     // -1 denotes a word without explicit timing. Never infer timing at lookup.
     std::vector<int64_t> wordTimesMs;
+    int64_t explicitEndMs = -1;  // trailing enhanced-LRC marker, if supplied
 };
 struct LyricRecord { std::vector<LyricCue> cues; bool unsynced = false; };
 struct LyricLookupResult { std::vector<LyricCue> cues; bool unsynced = false; bool networkError = false; };
@@ -3290,7 +3322,11 @@ static std::wstring StripEnhancedLrcTimeTags(const std::wstring& text) {
 // One-time, bounded enhanced-LRC word timestamp parsing. Display text is
 // still derived from StripEnhancedLrcTimeTags so normal formatting is retained.
 // Tags inside a token (syllable data) keep that token's initial timestamp.
-static std::vector<int64_t> ParseEnhancedLrcWordTimes(const std::wstring& raw) {
+static std::vector<int64_t> ParseEnhancedLrcWordTimes(const std::wstring& raw,
+                                                       int64_t* endMs = nullptr) {
+    if (endMs) *endMs = -1;
+    int64_t lastMarkerMs = -1;
+    bool textAfterLastMarker = false;
     std::vector<int64_t> times;
     times.reserve(16);
     int64_t pendingTime = -1, wordTime = -1;
@@ -3302,17 +3338,28 @@ static std::vector<int64_t> ParseEnhancedLrcWordTimes(const std::wstring& raw) {
             // A time tag can start a new word even when no space was inserted.
             if (inWord) { times.push_back(wordTime); inWord = false; }
             pendingTime = timestamp;
+            lastMarkerMs = timestamp;
+            textAfterLastMarker = false;
             i = after;
         } else if (iswspace(raw[i])) {
             if (inWord) { times.push_back(wordTime); inWord = false; }
             ++i;
         } else {
             if (!inWord) { wordTime = pendingTime; pendingTime = -1; inWord = true; }
+            textAfterLastMarker = true;
             ++i;
         }
         if (times.size() > 128) return {}; // avoid pathological/malformed lines
     }
     if (inWord) times.push_back(wordTime);
+    // A final <mm:ss.mmm> AFTER the last visible word is an explicit end,
+    // not a new word to be highlighted. Respect it even for one-word lines.
+    if (endMs && lastMarkerMs >= 0 && !textAfterLastMarker) {
+        int64_t lastWordStart = -1;
+        for (int64_t t : times) if (t >= 0) lastWordStart = t;
+        if (lastWordStart >= 0 && lastMarkerMs > lastWordStart)
+            *endMs = lastMarkerMs;
+    }
     return times;
 }
 static int CountLyricWords(const std::wstring& text) {
@@ -3368,7 +3415,8 @@ static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
         }
         std::wstring raw = line.substr(pos);
         std::wstring content = StripEnhancedLrcTimeTags(raw);
-        std::vector<int64_t> wordTimes = ParseEnhancedLrcWordTimes(raw);
+        int64_t explicitEndMs = -1;
+        std::vector<int64_t> wordTimes = ParseEnhancedLrcWordTimes(raw, &explicitEndMs);
         size_t first = content.find_first_not_of(L" \t");
         if (first == std::wstring::npos) content.clear();
         else content.erase(0, first);
@@ -3376,17 +3424,23 @@ static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
         if (last != std::wstring::npos) content.erase(last + 1);
         // Preserve explicit word clocks only when they align exactly with the
         // visible words and are monotonic. Otherwise fall back to line timing.
-        if ((int)wordTimes.size() != CountLyricWords(content)) wordTimes.clear();
+        if ((int)wordTimes.size() != CountLyricWords(content)) {
+            wordTimes.clear();
+            explicitEndMs = -1;
+        }
         int explicitTags = 0;
         int64_t previous = -1;
         for (auto t : wordTimes) if (t >= 0) {
-            if (previous > t) { wordTimes.clear(); break; }
+            if (previous > t) { wordTimes.clear(); explicitEndMs = -1; break; }
             previous = t;
             ++explicitTags;
         }
+        if (explicitEndMs >= 0 &&
+            (timestamps.front() >= explicitEndMs ||
+             explicitEndMs - timestamps.front() > 120000)) explicitEndMs = -1;
         if (explicitTags < 2) wordTimes.clear();
         for (auto ms : timestamps) if (cues.size() < 4000)
-            cues.push_back({ms, content, wordTimes});
+            cues.push_back({ms, content, wordTimes, explicitEndMs});
     }
     std::stable_sort(cues.begin(), cues.end(), [](const LyricCue& a, const LyricCue& b) {
         return a.timeMs < b.timeMs;
@@ -3399,10 +3453,83 @@ static std::vector<LyricCue> ParseLrcLines(const std::wstring& lrc) {
             if (!cue.text.empty() || unique.back().text.empty()) {
                 unique.back().text = std::move(cue.text);
                 unique.back().wordTimesMs = std::move(cue.wordTimesMs);
+                unique.back().explicitEndMs = cue.explicitEndMs;
             }
         } else unique.push_back(std::move(cue));
     }
     return unique;
+}
+
+// Sentence-level timing. Return INT64_MAX only when the current line cannot
+// reliably be ended before the track changes. This uses NO per-frame audio
+// analysis: the existing GSMTC position is authoritative if supplied.
+// Priority: explicit trailing enhanced-LRC end > timed last-word estimate >
+// line-only fallback. A next LRC cue always caps the previous cue.
+static int64_t ResolveSentenceEndMs(const std::vector<LyricCue>& cues, int index,
+                                    bool holdUntimedUntilNext, int graceMs) {
+    if (index < 0 || index >= (int)cues.size()) return INT64_MAX;
+    const auto& cue = cues[index];
+    const int64_t next = index + 1 < (int)cues.size()
+        ? cues[index + 1].timeMs : INT64_MAX;
+    if (cue.text.empty()) return cue.timeMs;
+    const int64_t start = cue.timeMs;
+    if (next <= start) return start;
+    int64_t estimatedEnd = INT64_MAX;
+    bool timed = false;
+    if (cue.explicitEndMs > start && cue.explicitEndMs - start < 120000) {
+        // Real terminal marker: it follows the final visible word.
+        estimatedEnd = cue.explicitEndMs;
+        timed = true;
+    } else if (cue.wordTimesMs.size() >= 2) {
+        // Fixed-size stack buffer: the lyric timer never allocates per poll.
+        int64_t intervals[4] = {};
+        int count = 0;
+        int64_t last = -1;
+        for (const auto t : cue.wordTimesMs) {
+            if (t < start || t < 0) continue;
+            if (last >= 0 && t > last && t - last <= 4000) {
+                if (count < 4) intervals[count++] = t - last;
+                else {
+                    intervals[0] = intervals[1];
+                    intervals[1] = intervals[2];
+                    intervals[2] = intervals[3];
+                    intervals[3] = t - last;
+                }
+            }
+            last = t;
+        }
+        if (last >= start && count > 0) {
+            // Median of up to the four latest intervals limits the impact of
+            // syllable ornaments, pauses and one extremely long earlier word.
+            std::sort(intervals, intervals + count);
+            const int64_t median = intervals[count / 2];
+            const int64_t lastWordDuration = std::clamp<int64_t>(
+                median * 3 / 2, 950, 2600);
+            estimatedEnd = last + lastWordDuration;
+            timed = true;  // estimated end, NOT a verified vocal end
+            // For tightly spaced lines, the next cue is the more reliable
+            // boundary than extrapolating a very short final syllable.
+            if (next != INT64_MAX && next - estimatedEnd <= 1100 &&
+                next > last) estimatedEnd = next;
+        }
+    }
+    if (!timed) {
+        if (holdUntimedUntilNext) return next;
+        // No word information. Keep normal adjacent lines to their next cue.
+        // Only infer an ending when the interval is clearly a long gap.
+        if (next != INT64_MAX && next - start <= 8000) return next;
+        const int words = std::max(1, CountLyricWords(cue.text));
+        const int64_t span = std::clamp<int64_t>(
+            2000LL + 850LL * words, 7000LL, 20000LL);
+        // If the estimated last word is near the next cue, don't blank
+        // the lyrics during a short residual gap.
+        if (next != INT64_MAX && next <= start + span + 2200)
+            return next;
+        estimatedEnd = start + span;
+    }
+    // A small configurable post-word tail avoids clipping sustained endings.
+    estimatedEnd += std::clamp(graceMs, 0, 1500);
+    return std::min(estimatedEnd, next);
 }
 
 // Only change lyric display characters, not their timestamps. This is an
@@ -4464,16 +4591,22 @@ static void UpdateLyricsPositionFromSession() {
             const bool haveNext = next >= 0 && next < (int)g_lyricsCues.size();
             const int64_t heldMs = newIndex >= 0 ? ms - g_lyricsCues[newIndex].timeMs : 0;
             const int64_t nextDistance = haveNext ? g_lyricsCues[next].timeMs - ms : INT64_MAX;
-            // The visualizer's instrumental threshold is not a lyric end time.
-            // Never drop a lyric just because its phrase exceeds 5.2 seconds.
-            // A long-gap limit protects against an old line persisting through
-            // several minutes of instrumental music or beyond the final cue.
-            const bool longGap = !haveNext ||
-                (newIndex >= 0 && g_lyricsCues[next].timeMs - g_lyricsCues[newIndex].timeMs >
-                    (int64_t)g_settings.lyricsHoldMs);
-            if (!g_lyricsUnsynced && playing && newIndex >= 0 && longGap &&
-                heldMs >= g_settings.lyricsHoldMs)
-                displayIndex = -1;
+            if (!g_lyricsUnsynced && newIndex >= 0) {
+                if (g_settings.sentenceMode) {
+                    const bool holdUntimed = g_settings.sentenceEndFallback == L"until_next";
+                    const auto endMs = ResolveSentenceEndMs(g_lyricsCues, newIndex,
+                        holdUntimed, g_settings.sentenceEndTailMs);
+                    if (ms >= endMs) displayIndex = -1;
+                } else {
+                    // Legacy word-follow mode only: its old long-gap cutoff
+                    // is deliberately absent from the sentence-mode path.
+                    const bool longGap = !haveNext ||
+                        (g_lyricsCues[next].timeMs - g_lyricsCues[newIndex].timeMs >
+                         (int64_t)g_settings.lyricsHoldMs);
+                    if (playing && longGap && heldMs >= g_settings.lyricsHoldMs)
+                        displayIndex = -1;
+                }
+            }
             // A line that will start shortly may be prepared in advance, but
             // do not show its text until its own timestamp has arrived.
             if (!g_lyricsUnsynced && playing && haveNext && !g_lyricsCues[next].text.empty() &&
@@ -4492,7 +4625,7 @@ static void UpdateLyricsPositionFromSession() {
             changed = true;
         }
         int wordIndex = -1;
-        if (ms >= 0 && displayIndex >= 0 && g_settings.lyricsWordFollow &&
+        if (ms >= 0 && displayIndex >= 0 && !g_settings.sentenceMode && g_settings.lyricsWordFollow &&
             !g_lyricsUnsynced) {
             const auto& cue = g_lyricsCues[displayIndex];
             const int wordCount = CountLyricWords(cue.text);
@@ -4634,7 +4767,7 @@ static void RefreshLyricsOnlyUi() {
             nextLine = g_lyricsCues[index].text;
             activeWord = g_lyricsDisplayWordIndex;
             originalWordCount = CountLyricWords(nextLine);
-            canFollowWords = !g_lyricsUnsynced && originalWordCount > 1 &&
+            canFollowWords = !g_settings.sentenceMode && !g_lyricsUnsynced && originalWordCount > 1 &&
                 originalWordCount <= 32 && g_settings.lyricsWordFollow &&
                 ((int)g_lyricsCues[index].wordTimesMs.size() == originalWordCount ||
                  g_settings.lyricsEstimateWordTiming);
