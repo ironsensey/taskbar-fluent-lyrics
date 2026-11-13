@@ -2,7 +2,7 @@
 // @id              taskbar-fluent-media-player-fork
 // @name            Taskbar Fluent Media + Lyrics
 // @description     Windows 11 taskbar media controls, lyrics, visualizer, automatically animated artwork and optional authorized video.
-// @version         3.1.8.3
+// @version         3.1.8.4
 // @author          ironsensey
 // @github          https://github.com/ironsensey
 // @include         explorer.exe
@@ -12,7 +12,7 @@
 
 // ==WindhawkModReadme==
 /*
-# Taskbar Fluent Media + Lyrics 3.1.8.3
+# Taskbar Fluent Media + Lyrics 3.1.8.4
 
 Album art, track details, playback controls and synced lyrics share one player.
 
@@ -1704,6 +1704,7 @@ New streaming integration and customizations by ironsensey.
   - hideWhenNoMedia: true
     $name: Hide when no media is playing
     $name:ru-RU: Скрывать, когда ничего не воспроизводится
+    $description: When enabled, hide the whole taskbar player if there is no media session, even when layout/visualizer/video previews are enabled. Disable this setting temporarily to preview with no music.
   - hideFullscreen: true
     $name: Hide when a fullscreen app is running
     $name:ru-RU: Скрывать при запущенном полноэкранном приложении
@@ -7275,6 +7276,7 @@ static DWORD WINAPI TimerThreadProc(void*) {
     struct ApartmentGuard { HRESULT result; ~ApartmentGuard() { if (SUCCEEDED(result)) CoUninitialize(); } } apartment{apartmentResult};
     auto idleSince = std::chrono::steady_clock::now();
     auto nextVisibilityCheck = idleSince;
+    auto nextSessionLivenessCheck = idleSince;
     auto nextPowerCheck = idleSince;
     static bool lastThemeWasLight = IsSystemLightTheme();
     HKEY hKey = nullptr;
@@ -7328,6 +7330,34 @@ static DWORD WINAPI TimerThreadProc(void*) {
             MaybeRetryLyricsLookup();
         }
         const auto now = std::chrono::steady_clock::now();
+        // GSMTC may miss a session-removal notification when a player exits.
+        // Reconcile only every five seconds, and only while auto-hide is on.
+        // This prevents stale session data from keeping a dead player visible.
+        if (g_settings.hideWhenNoMedia && now >= nextSessionLivenessCheck) {
+            nextSessionLivenessCheck = now + std::chrono::seconds(5);
+            GlobalSystemMediaTransportControlsSessionManager mgr{nullptr};
+            GlobalSystemMediaTransportControlsSession current{nullptr};
+            {
+                std::lock_guard<std::mutex> lk(g_sessionMtx);
+                mgr = g_sessionMgr;
+                current = g_currentSession;
+            }
+            if (mgr && current) {
+                try {
+                    auto sessions = mgr.GetSessions();
+                    bool stillPresent = false;
+                    for (auto const& candidate : sessions) {
+                        if (candidate == current) { stillPresent = true; break; }
+                    }
+                    if (!stillPresent && !g_unloading && !g_applyingSettings) {
+                        OnSessionsChanged();
+                        g_needsUiUpdate = true;
+                    }
+                } catch (...) {
+                    // Transient GSMTC failures must not unhook a live session.
+                }
+            }
+        }
         const bool needsUpdate = g_needsUiUpdate.exchange(false);
         const bool lyricsUpdate = g_needsLyricsUiUpdate.exchange(false);
         const bool lyricsLayout = g_needsLyricsLayoutUpdate.exchange(false);
@@ -14323,23 +14353,33 @@ static bool IsFullscreenActive() {
         return false;
     return true;
 }
+// Auto-hide takes priority over every preview mode. Otherwise a leftover
+// visualizer/album-art preview can remain on the taskbar with no media app.
+static bool ShouldHidePlayer(bool hideWhenNoMedia, bool hasSession, bool hasMedia,
+                             bool previewActive, bool otherHide,
+                             std::chrono::steady_clock::duration inactiveFor) {
+    if (hideWhenNoMedia && (!hasSession ||
+        (!hasMedia && inactiveFor >= std::chrono::milliseconds(2500))))
+        return true;
+    return previewActive ? false : otherHide;
+}
 static void UpdateVisibility() {
     if (!g_playerGrid || g_unloading || g_applyingSettings) return;
     bool hasSession = false, hasMedia = false;
     { std::lock_guard<std::mutex> lk(g_sessionMtx); hasSession = (g_currentSession != nullptr); }
     { std::lock_guard<std::mutex> lk(g_mediaMtx); hasMedia = g_media.hasMedia; }
     const auto now = std::chrono::steady_clock::now();
-    if (hasMedia) g_lastMediaTime = now;
-    bool hide = (g_settings.hideFullscreen && !g_settings.allowInFullscreen && IsFullscreenActive()) || g_hiddenByIdle;
-    if (g_settings.previewLayout || (g_settings.vizEnabled &&
-        g_settings.vizPreviewMode != L"off") ||
+    if (hasMedia && hasSession) g_lastMediaTime = now;
+    const bool otherHide = (g_settings.hideFullscreen && !g_settings.allowInFullscreen && IsFullscreenActive()) || g_hiddenByIdle;
+    const bool previewActive = g_settings.previewLayout ||
+        (g_settings.vizEnabled && g_settings.vizPreviewMode != L"off") ||
         (g_settings.canvasEnabled && g_settings.canvasPreviewWithoutMusic &&
          (g_settings.canvasSourceMode == L"fixed" ||
           g_settings.canvasSourceMode == L"online_canvas" ||
-          g_settings.canvasSourceMode == L"online_official"))) hide = false;
-    else if (g_settings.hideWhenNoMedia && !g_miniPlayerFlyoutOpen) {
-        hide = hide || !hasSession || (!hasMedia && now - g_lastMediaTime > std::chrono::milliseconds(2500));
-    }
+          g_settings.canvasSourceMode == L"online_official"));
+    const bool hide = ShouldHidePlayer(g_settings.hideWhenNoMedia, hasSession,
+                                      hasMedia, previewActive, otherHide,
+                                      now - g_lastMediaTime);
     try {
         const auto visibility = hide ? Visibility::Collapsed : Visibility::Visible;
         if (g_playerGrid.Visibility() != visibility) g_playerGrid.Visibility(visibility);
